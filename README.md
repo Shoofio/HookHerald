@@ -39,12 +39,25 @@ The project root is embedded in the binary at build time. If you move the repo a
 export HH_HOME=/path/to/hookherald
 ```
 
+## Docker
+
+```bash
+docker build -t hookherald .
+docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
+```
+
+Dashboard at `http://localhost:9000/`. That's it — no Node install, no repo clone needed on the host.
+
 ## Usage
 
 ### 1. Start the router
 
 ```bash
+# Native
 hh router
+
+# Docker
+docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
 ```
 
 Starts on `127.0.0.1:9000`. Dashboard at `http://127.0.0.1:9000/`.
@@ -140,6 +153,7 @@ notify:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ROUTER_PORT` | `9000` | Router listen port |
+| `ROUTER_HOST` | `127.0.0.1` | Router bind address (`0.0.0.0` for Docker) |
 | `WEBHOOK_SECRET` | `dev-secret` | Shared secret for webhook auth |
 | `PROJECT_SLUG` | `unknown/project` | Channel's project identifier |
 | `ROUTER_URL` | `http://127.0.0.1:9000` | Channel's router address |

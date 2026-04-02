@@ -33,7 +33,7 @@ claude --dangerously-load-development-channels server:webhook-channel
 # 5. Send a webhook
 curl -X POST http://127.0.0.1:9000/ \
   -H "Content-Type: application/json" \
-  -H "X-Gitlab-Token: dev-secret" \
+  -H "X-Webhook-Token: dev-secret" \
   -d '{"project_slug":"my/project","whatever":"you want"}'
 ```
 
@@ -45,6 +45,10 @@ hh init [--slug <s>] [--router-url <u>]   # Set up .mcp.json in current director
 hh status [--router-url <u>]               # Show active sessions
 hh kill <slug> [--router-url <u>]          # Bounce a session (Claude Code respawns it)
 hh router [--port <p>] [--secret <s>]      # Start the webhook router
+
+# Docker
+docker build -t hookherald .
+docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
 
 # Node (development)
 npm run router          # Start the webhook router (default port 9000)
@@ -63,7 +67,7 @@ npx tsx --test-force-exit --test tests/cli.test.ts
 
 ## Architecture
 
-**Router** (`src/webhook-router.ts`) — Central HTTP server. Authenticates incoming webhooks via `X-Gitlab-Token` header, looks up `project_slug` in an in-memory routing table, and forwards the payload to the registered downstream channel. Serves: a session management dashboard at `/`, SSE live updates at `/api/stream`, Prometheus metrics at `/metrics`, and JSON APIs (`/api/health`, `/api/sessions`, `/api/events`, `/api/events/:id`, `/api/stats`, `/api/kill`, `/routes`). Heartbeat re-registrations from channels are handled silently (idempotent).
+**Router** (`src/webhook-router.ts`) — Central HTTP server. Authenticates incoming webhooks via `X-Webhook-Token` header (also accepts `X-Gitlab-Token` for backwards compat), looks up `project_slug` in an in-memory routing table, and forwards the payload to the registered downstream channel. Serves: a session management dashboard at `/`, SSE live updates at `/api/stream`, Prometheus metrics at `/metrics`, and JSON APIs (`/api/health`, `/api/sessions`, `/api/events`, `/api/events/:id`, `/api/stats`, `/api/kill`, `/routes`). Heartbeat re-registrations from channels are handled silently (idempotent).
 
 **Channel** (`src/webhook-channel.ts`) — MCP server over stdio. On startup, binds to port 0 (OS-assigned), self-registers with the router, and maintains a 30s heartbeat for automatic reconnection after router restarts. Forwards raw JSON payloads as `notifications/claude/channel` MCP notifications. Supports remote shutdown via `POST /shutdown`. Unregisters on SIGTERM.
 
@@ -77,11 +81,12 @@ Webhook POST → Router (auth + route lookup) → Channel HTTP server → MCP ch
 
 ## Testing
 
-Tests are integration-heavy (77 tests across 4 suites). Router and channel tests spawn actual processes and make real HTTP requests. The router test creates fake downstream servers to verify forwarding. The channel test creates a fake router to capture registration, heartbeat, and shutdown behavior. CLI tests use mock servers for status/kill and temp directories for init. Observability tests are pure unit tests. Tests are isolated and safe to run with a live router on port 9000.
+Tests are integration-heavy (79 tests across 4 suites). Router and channel tests spawn actual processes and make real HTTP requests. The router test creates fake downstream servers to verify forwarding. The channel test creates a fake router to capture registration, heartbeat, and shutdown behavior. CLI tests use mock servers for status/kill and temp directories for init. Observability tests are pure unit tests. Tests are isolated and safe to run with a live router on port 9000.
 
 ## Environment Variables
 
 - `ROUTER_PORT` — Router listen port (default: 9000)
+- `ROUTER_HOST` — Router bind address (default: 127.0.0.1, use 0.0.0.0 for Docker)
 - `WEBHOOK_SECRET` — Shared secret for webhook auth (default: dev-secret)
 - `PROJECT_SLUG` — Channel's project identifier (default: unknown/project)
 - `ROUTER_URL` — Channel's router address (default: http://127.0.0.1:9000)
