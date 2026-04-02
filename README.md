@@ -21,11 +21,23 @@ git clone <repo-url> && cd hookherald
 npm install
 go build -ldflags "-X main.projectRoot=$(pwd)" -o hh ./cmd/hh/
 
-# Install globally
+# Option A: install for current user (no sudo)
+mkdir -p ~/.local/bin
+cp hh ~/.local/bin/hh
+# Make sure ~/.local/bin is in your PATH (add to ~/.zshrc or ~/.bashrc):
+#   export PATH="$HOME/.local/bin:$PATH"
+
+# Option B: install system-wide
 sudo cp hh /usr/local/bin/hh
 ```
 
-Requires: Node.js, Go (build only — the binary has no runtime dependencies).
+Requires: Node.js, Go (build only — the `hh` binary has no runtime dependencies).
+
+The project root is embedded in the binary at build time. If you move the repo after building, set `HH_HOME` to point to it:
+
+```bash
+export HH_HOME=/path/to/hookherald
+```
 
 ## Usage
 
