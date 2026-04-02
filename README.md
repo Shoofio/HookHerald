@@ -19,106 +19,79 @@ Payloads are forwarded as raw JSON — send whatever you want, the agent figures
 npm install -g hookherald
 ```
 
-That's it. Requires Node.js >= 18.
+Requires Node.js >= 18.
 
-## Usage
-
-### 1. Start the router
+## Quick Start
 
 ```bash
-hh router             # foreground (see logs, ctrl+c to stop)
-hh router --bg        # background (detach, write PID file)
-hh router stop        # stop background router
-```
+# 1. Start the router
+hh router --bg
 
-Dashboard at `http://127.0.0.1:9000/`.
-
-### 2. Set up a project
-
-```bash
+# 2. Set up a project
 cd ~/my-project
 hh init
-```
 
-Auto-detects the project slug from `git remote origin` and writes `.mcp.json`. Merges with existing config if present.
-
-### 3. Start Claude Code
-
-```bash
+# 3. Start Claude Code
 claude --dangerously-load-development-channels server:webhook-channel
-```
 
-The channel starts, registers with the router, and maintains a heartbeat. If the router restarts, the channel reconnects automatically. When the session ends, the channel cleans up after itself.
-
-### 4. Send webhooks
-
-```bash
+# 4. Send a webhook
 curl -X POST http://127.0.0.1:9000/ \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Token: dev-secret" \
   -d '{"project_slug":"my-group/my-project","status":"deployed","version":"1.2.3"}'
 ```
 
-The only required field is `project_slug` for routing — everything else passes through as raw JSON.
-
-The `X-Webhook-Token` header authenticates the request against `WEBHOOK_SECRET`. GitLab sends this natively as `X-Gitlab-Token` when you configure a webhook secret — the router accepts both headers.
-
-## CLI Reference
+## CLI
 
 ```
 hh init   [--slug <slug>] [--router-url <url>]   Set up .mcp.json in current directory
 hh status [--router-url <url>]                    Show active sessions
-hh kill   <slug> [--router-url <url>]             Bounce a session (Claude Code respawns it)
+hh kill   <slug> [--router-url <url>]             Bounce a session
 hh router [--port <port>] [--secret <secret>]     Start the webhook router
           [--bg]                                  Run in background
 hh router stop                                    Stop background router
 ```
 
+`hh init` auto-detects the project slug from `git remote origin`. Merges with existing `.mcp.json` if present.
+
+`hh kill` signals the channel to shut down. Claude Code will respawn it — use this to bounce a session, not permanently remove it.
+
 ## Docker
 
-The router can also run via Docker. Requires `--network host` to reach channel processes on localhost:
+The router can also run via Docker (requires `--network host` on Linux):
 
 ```bash
 docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
 ```
 
-> **Note:** `--network host` requires Linux with standard Docker. For rootless Docker or Docker Desktop (Mac/Windows), use `hh router` instead.
+> For rootless Docker or Docker Desktop (Mac/Windows), use `hh router` instead.
 
 ## Router API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/` | Receive webhook (requires `X-Webhook-Token` or `X-Gitlab-Token` header) |
-| `POST` | `/register` | Channel self-registration |
-| `POST` | `/unregister` | Channel self-unregistration |
+| `POST` | `/` | Receive webhook (requires `X-Webhook-Token` or `X-Gitlab-Token`) |
 | `POST` | `/api/kill` | Remove a session (signals channel to shut down) |
 | `GET` | `/` | Session management dashboard |
-| `GET` | `/api/health` | Router health check |
-| `GET` | `/api/sessions` | List active sessions with metrics |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/sessions` | Active sessions with metrics |
 | `GET` | `/api/events` | Query events (`?slug=`, `?limit=`, `?offset=`) |
 | `GET` | `/api/events/:id` | Single event by ID |
-| `GET` | `/api/stats` | Aggregated statistics |
 | `GET` | `/api/stream` | SSE live updates |
-| `GET` | `/routes` | Raw routing table |
-| `GET` | `/metrics` | Prometheus format metrics |
+| `GET` | `/metrics` | Prometheus format |
 
 ## Dashboard
 
-The router serves a live session management UI at `http://127.0.0.1:9000/`:
+Live session management UI at `http://127.0.0.1:9000/`:
 
-- **Sessions table** — status, port, event count, errors, latency, kill button
-- **Event feed** — click sessions to filter, ctrl/shift+click for multi-select
-- **Event detail** — expand inline for summary, trace waterfall, raw payload
-- **Live updates** — SSE-powered, no refresh needed
+- **Sessions** — status, events, errors, latency, kill button
+- **Events** — click sessions to filter, ctrl/shift for multi-select
+- **Detail** — trace waterfall, raw payload
+- **Live** — SSE-powered, no refresh
 
-## GitLab CI Integration
+## GitLab CI
 
-Add a webhook in your GitLab project/group settings:
-- **URL**: `http://<your-machine>:9000/`
-- **Secret token**: your `WEBHOOK_SECRET`
-- **Trigger**: Pipeline events (or any events you want)
-
-Or add a `curl` step in `.gitlab-ci.yml` for custom payloads:
+Add a webhook in project settings, or use a CI step:
 
 ```yaml
 notify:
@@ -128,7 +101,7 @@ notify:
       curl -s -X POST http://$ROUTER_HOST:9000/ \
         -H "Content-Type: application/json" \
         -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-        -d "{\"project_slug\":\"$CI_PROJECT_PATH\",\"status\":\"$CI_PIPELINE_STATUS\",\"branch\":\"$CI_COMMIT_BRANCH\",\"sha\":\"$CI_COMMIT_SHA\",\"pipeline\":\"$CI_PIPELINE_URL\"}"
+        -d "{\"project_slug\":\"$CI_PROJECT_PATH\",\"status\":\"$CI_PIPELINE_STATUS\",\"branch\":\"$CI_COMMIT_BRANCH\",\"sha\":\"$CI_COMMIT_SHA\"}"
 ```
 
 ## Environment Variables
@@ -136,21 +109,13 @@ notify:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ROUTER_PORT` | `9000` | Router listen port |
-| `ROUTER_HOST` | `127.0.0.1` | Router bind address (`0.0.0.0` for Docker) |
-| `WEBHOOK_SECRET` | `dev-secret` | Shared secret for webhook auth |
-| `PROJECT_SLUG` | `unknown/project` | Channel's project identifier |
-| `ROUTER_URL` | `http://127.0.0.1:9000` | Channel's router address |
-| `LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
+| `ROUTER_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for Docker) |
+| `WEBHOOK_SECRET` | `dev-secret` | Auth secret |
+| `PROJECT_SLUG` | `unknown/project` | Channel's project ID |
+| `ROUTER_URL` | `http://127.0.0.1:9000` | Router address |
+| `LOG_LEVEL` | `info` | debug/info/warn/error |
 | `HH_HEARTBEAT_MS` | `30000` | Channel heartbeat interval |
 
-## Alternative: Go CLI
+## License
 
-A compiled Go binary is also available for faster startup (~5ms vs ~700ms). See `cmd/hh/` and [releases](https://github.com/Shoofio/HookHerald/releases).
-
-## Testing
-
-```bash
-npm test    # 79 tests across 4 suites
-```
-
-Tests are integration-heavy — they spawn real processes and make real HTTP requests. Safe to run with a live router.
+MIT

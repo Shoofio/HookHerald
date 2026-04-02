@@ -1,8 +1,21 @@
 {
   "name": "hookherald",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Webhook relay for Claude Code — push notifications from any HTTP POST into running sessions",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shoofio/HookHerald.git"
+  },
+  "keywords": [
+    "webhook",
+    "claude-code",
+    "mcp",
+    "notifications",
+    "ci",
+    "cli"
+  ],
   "bin": {
     "hh": "bin/hh"
   },
@@ -16,7 +29,6 @@
   "scripts": {
     "router": "npx tsx src/webhook-router.ts",
     "channel": "npx tsx src/webhook-channel.ts",
-    "build:go": "go build -ldflags \"-X main.projectRoot=$(pwd)\" -o hh ./cmd/hh/",
     "test": "npx tsx --test-force-exit --test tests/observability.test.ts && npx tsx --test-force-exit --test tests/channel.test.ts && npx tsx --test-force-exit --test tests/router.test.ts && npx tsx --test-force-exit --test tests/cli.test.ts"
   },
   "dependencies": {
