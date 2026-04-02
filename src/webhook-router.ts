@@ -16,6 +16,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.ROUTER_PORT || "9000", 10);
+const HOST = process.env.ROUTER_HOST || "127.0.0.1";
 const SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
 
 const log = createLogger("router");
@@ -536,10 +537,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
+server.listen(PORT, HOST, () => {
   const addr = server.address();
   const actualPort = typeof addr === "object" && addr ? addr.port : PORT;
-  log.info("listening", { host: "127.0.0.1", port: actualPort });
+  log.info("listening", { host: HOST, port: actualPort });
   log.info("secret", { preview: SECRET.slice(0, 4) + "..." });
   // Machine-readable line for process spawners to discover the port
   process.stderr.write(`HOOKHERALD_PORT=${actualPort}\n`);

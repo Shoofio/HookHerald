@@ -1,0 +1,10 @@
+node_modules/
+dist/
+hh
+cmd/
+tests/
+go.mod
+.git/
+.claude/
+.gitignore
+*.md
