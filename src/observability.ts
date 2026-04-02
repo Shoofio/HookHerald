@@ -172,7 +172,7 @@ export class MetricsCollector {
     }
   }
 
-  formatPrometheus(): string {
+  formatPrometheus(extra?: { routesActive?: number }): string {
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
     const lines: string[] = [];
 
@@ -208,8 +208,7 @@ export class MetricsCollector {
 
     lines.push("# HELP hookherald_routes_active Currently registered routes");
     lines.push("# TYPE hookherald_routes_active gauge");
-    // Will be filled by the router since it owns the routes map
-    lines.push(`hookherald_routes_active{} __ROUTES_COUNT__`);
+    lines.push(`hookherald_routes_active ${extra?.routesActive ?? 0}`);
     lines.push("");
 
     lines.push("# HELP hookherald_registrations_total Total registrations");
@@ -241,7 +240,7 @@ export class MetricsCollector {
 
 // --- Trace Helpers ---
 
-export function createTrace(): { span: (name: string) => TraceSpan; spans: TraceSpan[] } {
+export function createTrace() {
   const spans: TraceSpan[] = [];
   const origin = performance.now();
 
@@ -253,19 +252,14 @@ export function createTrace(): { span: (name: string) => TraceSpan; spans: Trace
       spans.push(s);
       return s;
     },
+    end(span: TraceSpan) {
+      span.endMs = Math.round(performance.now() - origin);
+      span.durationMs = span.endMs - span.startMs;
+    },
+    elapsed(): number {
+      return Math.round(performance.now() - origin);
+    },
   };
-}
-
-export function endSpan(span: TraceSpan, origin?: number) {
-  const now = performance.now();
-  // If origin provided, compute relative; otherwise just mark duration from startMs
-  span.endMs = origin ? Math.round(now - origin) : span.startMs;
-  span.durationMs = span.endMs - span.startMs;
-}
-
-// Simple helper: mark a span as ended with an explicit duration
-export function closeSpan(span: TraceSpan) {
-  span.endMs = span.startMs + span.durationMs;
 }
 
 // --- Payload truncation ---

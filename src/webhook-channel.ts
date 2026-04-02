@@ -10,7 +10,7 @@ const log = createLogger(`channel:${PROJECT_SLUG}`, true); // stderr for MCP
 
 // --- MCP Server setup ---
 const mcp = new Server(
-  { name: "webhook-channel", version: "0.1.0" },
+  { name: "webhook-channel", version: "0.2.0" },
   {
     capabilities: {
       experimental: { "claude/channel": {} },
@@ -24,23 +24,7 @@ const mcp = new Server(
 
 // --- HTTP Server to receive forwarded webhooks ---
 function formatMessage(payload: any): string {
-  const status = payload.pipeline_status || "unknown";
-  const slug = payload.project_slug || "unknown";
-  const mrIid = payload.mr_iid || "none";
-  const branch = payload.branch || "unknown";
-  const commitSha = (payload.commit_sha || "unknown").slice(0, 8);
-  const commitTitle = payload.commit_title || "";
-  const pipelineUrl = payload.pipeline_url || "";
-
-  const statusUpper = status.toUpperCase();
-  let msg = `CI pipeline ${statusUpper} for ${slug}`;
-  if (mrIid !== "none") msg += ` MR !${mrIid}`;
-  msg += ` on branch ${branch}`;
-  msg += ` (commit ${commitSha}`;
-  if (commitTitle) msg += `: "${commitTitle}"`;
-  msg += `)`;
-  if (pipelineUrl) msg += `\nPipeline: ${pipelineUrl}`;
-  return msg;
+  return JSON.stringify(payload, null, 2);
 }
 
 let assignedPort: number;
@@ -48,6 +32,15 @@ let assignedPort: number;
 const httpServer = createServer(async (req, res) => {
   if (req.method !== "POST") {
     res.writeHead(405).end("Method not allowed");
+    return;
+  }
+
+  // Remote shutdown endpoint
+  if (req.url === "/shutdown") {
+    log.info("received remote shutdown signal");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    shutdown();
     return;
   }
 
@@ -68,8 +61,7 @@ const httpServer = createServer(async (req, res) => {
   const content = formatMessage(payload);
   const meta: Record<string, string> = {
     project: String(payload.project_slug || ""),
-    status: String(payload.pipeline_status || ""),
-    mr_iid: String(payload.mr_iid || "none"),
+    traceId: traceId || "",
   };
 
   log.info("received event", {
@@ -92,13 +84,13 @@ const httpServer = createServer(async (req, res) => {
   res.end(JSON.stringify({ ok: true }));
 });
 
-// Bind to port 0 for auto-assignment
-httpServer.listen(0, "127.0.0.1", async () => {
-  const addr = httpServer.address();
-  assignedPort = typeof addr === "object" && addr ? addr.port : 0;
-  log.info("HTTP server listening", { host: "127.0.0.1", port: assignedPort });
+// --- Registration with heartbeat ---
 
-  // Self-register with the router
+const HEARTBEAT_INTERVAL = parseInt(process.env.HH_HEARTBEAT_MS || "30000", 10);
+let registered = false;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+async function register(): Promise<boolean> {
   try {
     const resp = await fetch(`${ROUTER_URL}/register`, {
       method: "POST",
@@ -106,19 +98,39 @@ httpServer.listen(0, "127.0.0.1", async () => {
       body: JSON.stringify({ project_slug: PROJECT_SLUG, port: assignedPort }),
     });
     if (resp.ok) {
-      log.info("registered with router", { router: ROUTER_URL });
-    } else {
-      log.warn("registration failed", { status: resp.status });
+      if (!registered) log.info("registered with router", { router: ROUTER_URL });
+      registered = true;
+      return true;
     }
-  } catch (err: any) {
-    log.warn("could not reach router", { router: ROUTER_URL, error: err.message });
-    log.info("running standalone", { port: assignedPort });
+    log.warn("registration failed", { status: resp.status });
+    registered = false;
+    return false;
+  } catch {
+    if (registered) log.warn("lost connection to router", { router: ROUTER_URL });
+    registered = false;
+    return false;
   }
+}
+
+function startHeartbeat() {
+  heartbeatTimer = setInterval(register, HEARTBEAT_INTERVAL);
+  heartbeatTimer.unref();
+}
+
+// Bind to port 0 for auto-assignment
+httpServer.listen(0, "127.0.0.1", async () => {
+  const addr = httpServer.address();
+  assignedPort = typeof addr === "object" && addr ? addr.port : 0;
+  log.info("HTTP server listening", { host: "127.0.0.1", port: assignedPort });
+
+  await register();
+  startHeartbeat();
 });
 
 // Graceful shutdown: unregister from router
 async function shutdown() {
   log.info("shutting down");
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   try {
     await fetch(`${ROUTER_URL}/unregister`, {
       method: "POST",

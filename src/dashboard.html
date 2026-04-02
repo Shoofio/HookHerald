@@ -61,193 +61,181 @@
 
   /* Layout */
   .main {
-    display: grid;
-    grid-template-columns: 340px 1fr;
-    grid-template-rows: 1fr;
+    display: flex;
+    flex-direction: column;
     height: calc(100vh - 49px);
+    overflow: hidden;
   }
 
-  /* Routes panel */
-  .routes-panel {
-    border-right: 1px solid var(--border);
+  /* Sessions table */
+  .sessions-section {
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    max-height: 40%;
     overflow-y: auto;
-    padding: 12px;
   }
-  .routes-panel h2 {
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px 6px;
+  }
+  .section-header h2 {
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-dim);
-    margin-bottom: 8px;
   }
-  .route-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
+  .sessions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
   }
-  .route-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+  .sessions-table th {
+    text-align: left;
+    padding: 6px 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
   }
+  .sessions-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sessions-table tr { cursor: pointer; }
+  .sessions-table tr:hover td { background: var(--bg-hover); }
+  .sessions-table tr.selected td { background: #1a2636; border-color: var(--blue); }
+  .sessions-table tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
+
   .status-dot {
+    display: inline-block;
     width: 8px; height: 8px;
     border-radius: 50%;
-    flex-shrink: 0;
+    margin-right: 6px;
+    vertical-align: middle;
   }
   .status-dot.up { background: var(--green); }
   .status-dot.down { background: var(--red); }
   .status-dot.unknown { background: var(--text-dim); }
-  .route-slug {
+
+  .btn-kill {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--red);
     font-family: var(--mono);
-    font-size: 13px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
   }
-  .route-meta {
-    font-size: 12px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    display: flex;
-    gap: 12px;
-  }
-  .no-routes {
+  .btn-kill:hover { background: #3a1a1a; border-color: var(--red); }
+
+  .no-data {
     color: var(--text-dim);
     font-size: 13px;
     text-align: center;
     padding: 24px 0;
   }
 
-  /* Events panel */
-  .events-panel {
+  /* Events section */
+  .events-section {
+    flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
-  .events-panel h2 {
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-dim);
-    padding: 12px 16px 8px;
-  }
+
   .events-list {
     flex: 1;
     overflow-y: auto;
-    padding: 0 12px 12px;
+    padding: 0 8px 8px;
   }
+
   .event-row {
     display: grid;
-    grid-template-columns: 90px 1fr 80px 60px 50px;
+    grid-template-columns: 80px 1fr 80px 80px 50px;
     gap: 8px;
     align-items: center;
-    padding: 8px 12px;
-    border-radius: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
     cursor: pointer;
     font-family: var(--mono);
     font-size: 12px;
-    border: 1px solid transparent;
   }
   .event-row:hover { background: var(--bg-hover); }
-  .event-row.selected {
-    background: var(--bg-hover);
-    border-color: var(--border);
-  }
   .event-time { color: var(--text-dim); }
   .event-slug { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .event-type {
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-align: center;
-    font-weight: 600;
-  }
-  .event-type.webhook { background: #1f3a5f; color: var(--blue); }
-  .event-type.register { background: #1a3a2a; color: var(--green); }
-  .event-type.unregister { background: #3a1a1a; color: var(--red); }
+
   .badge {
     font-size: 11px;
     padding: 2px 6px;
     border-radius: 3px;
     text-align: center;
     font-weight: 600;
+    display: inline-block;
   }
+  .badge.webhook { background: #1f3a5f; color: var(--blue); }
+  .badge.register { background: #1a3a2a; color: var(--green); }
+  .badge.unregister { background: #3a1a1a; color: var(--red); }
   .badge.forwarded { background: #1a3a2a; color: var(--green); }
   .badge.no_route { background: #3a2a1a; color: var(--yellow); }
   .badge.unauthorized { background: #3a1a1a; color: var(--red); }
   .badge.invalid { background: #3a1a1a; color: var(--red); }
-  .event-latency { color: var(--text-dim); text-align: right; }
-  .no-events {
-    color: var(--text-dim);
-    font-size: 13px;
-    text-align: center;
-    padding: 48px 0;
-  }
 
-  /* Detail panel (replaces events list when active) */
-  .detail-panel {
-    display: none;
-    flex-direction: column;
-    overflow-y: auto;
-    padding: 16px;
-  }
-  .detail-panel.visible { display: flex; }
-  .detail-back {
-    font-size: 13px;
-    color: var(--blue);
-    cursor: pointer;
-    margin-bottom: 12px;
-    border: none;
-    background: none;
-    font-family: var(--sans);
-  }
-  .detail-back:hover { text-decoration: underline; }
-  .detail-section {
-    margin-bottom: 16px;
-  }
-  .detail-section h3 {
+  .event-latency { color: var(--text-dim); text-align: right; }
+
+  /* Event detail (inline expand) */
+  .event-detail {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 4px 8px 8px;
+    padding: 12px;
+    font-family: var(--mono);
     font-size: 12px;
+  }
+  .detail-section { margin-bottom: 12px; }
+  .detail-section:last-child { margin-bottom: 0; }
+  .detail-section h3 {
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-dim);
     margin-bottom: 6px;
   }
   .detail-kv {
-    font-family: var(--mono);
-    font-size: 12px;
     display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 4px 12px;
+    grid-template-columns: 120px 1fr;
+    gap: 3px 12px;
   }
   .detail-kv .key { color: var(--text-dim); }
   .detail-kv .val { color: var(--text); word-break: break-all; }
 
   /* Trace waterfall */
-  .trace-bar-container {
-    margin-top: 4px;
-  }
   .trace-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
-    font-family: var(--mono);
+    margin-bottom: 3px;
     font-size: 11px;
   }
   .trace-label {
-    width: 140px;
+    width: 120px;
     text-align: right;
     color: var(--text-dim);
     flex-shrink: 0;
   }
   .trace-bar-track {
     flex: 1;
-    height: 16px;
+    height: 14px;
     background: var(--bg);
     border-radius: 3px;
     position: relative;
@@ -260,7 +248,7 @@
     min-width: 2px;
   }
   .trace-duration {
-    width: 50px;
+    width: 45px;
     color: var(--text-dim);
     font-size: 11px;
     flex-shrink: 0;
@@ -270,15 +258,32 @@
   .payload-block {
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px;
-    font-family: var(--mono);
-    font-size: 12px;
+    border-radius: 4px;
+    padding: 8px;
     white-space: pre-wrap;
     word-break: break-all;
-    max-height: 300px;
+    max-height: 200px;
     overflow-y: auto;
   }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px 6px;
+    font-size: 12px;
+  }
+  .filter-bar select, .filter-bar input {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .filter-bar label { color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -289,69 +294,81 @@
     <span><span class="connection-dot" id="connDot"></span><span id="connStatus">disconnected</span></span>
     <span>uptime: <span class="value" id="uptime">-</span></span>
     <span>events: <span class="value" id="totalEvents">0</span></span>
-    <span>routes: <span class="value" id="totalRoutes">0</span></span>
+    <span>sessions: <span class="value" id="totalSessions">0</span></span>
   </div>
 </div>
 
 <div class="main">
-  <div class="routes-panel">
-    <h2>Routes</h2>
-    <div id="routesList"><div class="no-routes">No routes registered</div></div>
-  </div>
-
-  <div class="events-panel" id="eventsPanel">
-    <h2>Event Feed</h2>
-    <div class="events-list" id="eventsList">
-      <div class="no-events">Waiting for events...</div>
+  <div class="sessions-section">
+    <div class="section-header">
+      <h2>Sessions</h2>
+    </div>
+    <div id="sessionsContent">
+      <div class="no-data">No active sessions</div>
     </div>
   </div>
 
-  <div class="detail-panel" id="detailPanel">
-    <button class="detail-back" onclick="closeDetail()">&larr; Back to events</button>
-    <div id="detailContent"></div>
+  <div class="events-section">
+    <div class="section-header">
+      <h2>Events</h2>
+    </div>
+    <div class="filter-bar">
+      <span id="filterHint" style="color:var(--text-dim)">Showing all sessions</span>
+      <select id="filterType">
+        <option value="">All types</option>
+        <option value="webhook">webhook</option>
+        <option value="register">register</option>
+        <option value="unregister">unregister</option>
+      </select>
+    </div>
+    <div class="events-list" id="eventsList">
+      <div class="no-data">Waiting for events...</div>
+    </div>
   </div>
 </div>
 
 <script>
 const state = {
-  routes: {},
+  sessions: [],
   events: [],
   stats: {},
-  selectedEvent: null,
+  expandedEventId: null,
+  selectedSlugs: new Set(),
+  filterType: '',
 };
 
 // --- SSE ---
 
 let es;
 function connectSSE() {
-  es = new EventSource('/events/stream');
+  es = new EventSource('/api/stream');
 
   es.addEventListener('init', (e) => {
     const data = JSON.parse(e.data);
-    state.routes = data.routes || {};
+    state.sessions = data.sessions || [];
     state.stats = data.stats || {};
     state.events = data.recentEvents || [];
     renderAll();
   });
 
-  es.addEventListener('event', (e) => {
-    const event = JSON.parse(e.data);
-    state.events.unshift(event);
+  es.addEventListener('webhook', (e) => {
+    const ev = JSON.parse(e.data);
+    state.events.unshift(ev);
     if (state.events.length > 200) state.events.length = 200;
     renderEvents();
-    updateHeaderStats();
+    updateHeader();
   });
 
-  es.addEventListener('route_change', (e) => {
+  es.addEventListener('session', (e) => {
     const data = JSON.parse(e.data);
-    state.routes = data.routes || {};
-    renderRoutes();
-    updateHeaderStats();
+    state.sessions = data.sessions || [];
+    renderSessions();
+    updateHeader();
   });
 
   es.addEventListener('stats', (e) => {
     state.stats = JSON.parse(e.data);
-    updateHeaderStats();
+    updateHeader();
   });
 
   es.onopen = () => {
@@ -368,21 +385,22 @@ function connectSSE() {
 // --- Rendering ---
 
 function renderAll() {
-  renderRoutes();
+  renderSessions();
   renderEvents();
-  updateHeaderStats();
+  updateHeader();
+  updateFilterHint();
 }
 
-function updateHeaderStats() {
+function updateHeader() {
   const s = state.stats;
-  document.getElementById('totalRoutes').textContent = Object.keys(state.routes).length;
+  document.getElementById('totalSessions').textContent = state.sessions.length;
   document.getElementById('totalEvents').textContent = s.webhooks ? s.webhooks.total : state.events.length;
   if (s.uptimeSeconds !== undefined) {
-    document.getElementById('uptime').textContent = formatUptime(s.uptimeSeconds);
+    document.getElementById('uptime').textContent = fmtUptime(s.uptimeSeconds);
   }
 }
 
-function formatUptime(sec) {
+function fmtUptime(sec) {
   if (sec < 60) return sec + 's';
   if (sec < 3600) return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
   const h = Math.floor(sec / 3600);
@@ -390,88 +408,158 @@ function formatUptime(sec) {
   return h + 'h ' + m + 'm';
 }
 
-function renderRoutes() {
-  const el = document.getElementById('routesList');
-  const slugs = Object.keys(state.routes);
-  if (!slugs.length) {
-    el.innerHTML = '<div class="no-routes">No routes registered</div>';
+function renderSessions() {
+  const el = document.getElementById('sessionsContent');
+  if (!state.sessions.length) {
+    el.innerHTML = '<div class="no-data">No active sessions</div>';
     return;
   }
-  el.innerHTML = slugs.map(slug => {
-    const r = state.routes[slug];
-    return `<div class="route-card">
-      <div class="route-header">
-        <div class="status-dot ${r.status || 'unknown'}"></div>
-        <div class="route-slug" title="${slug}">${slug}</div>
-      </div>
-      <div class="route-meta">
-        <span>:${r.port}</span>
-        <span>${r.eventCount || 0} events</span>
-        ${r.lastEventAt ? '<span>' + timeAgo(r.lastEventAt) + '</span>' : ''}
-      </div>
-    </div>`;
-  }).join('');
+
+  let html = '<table class="sessions-table"><thead><tr>';
+  html += '<th>Status</th><th>Slug</th><th>Port</th><th>Events</th><th>Errors</th><th>Avg Latency</th><th>Last Event</th><th></th>';
+  html += '</tr></thead><tbody>';
+
+  for (const s of state.sessions) {
+    const sel = state.selectedSlugs.has(s.slug) ? ' selected' : '';
+    html += `<tr class="${sel}" onclick="selectSession('${esc(s.slug)}', event)">
+      <td><span class="status-dot ${s.status}"></span>${s.status}</td>
+      <td>${esc(s.slug)}</td>
+      <td>${s.port}</td>
+      <td>${s.eventCount}</td>
+      <td>${s.errorCount}</td>
+      <td>${s.avgLatencyMs}ms</td>
+      <td class="last-event-cell" data-ts="${s.lastEventAt || ''}">${s.lastEventAt ? timeAgo(s.lastEventAt) : 'never'}</td>
+      <td><button class="btn-kill" onclick="event.stopPropagation(); killSession('${esc(s.slug)}')">kill</button></td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function selectSession(slug, ev) {
+  if (ev.ctrlKey || ev.metaKey) {
+    // Toggle this slug in selection
+    if (state.selectedSlugs.has(slug)) {
+      state.selectedSlugs.delete(slug);
+    } else {
+      state.selectedSlugs.add(slug);
+    }
+  } else if (ev.shiftKey && state.selectedSlugs.size > 0) {
+    // Range select: from last selected to this one
+    const slugs = state.sessions.map(s => s.slug);
+    const lastSelected = [...state.selectedSlugs].pop();
+    const from = slugs.indexOf(lastSelected);
+    const to = slugs.indexOf(slug);
+    if (from !== -1 && to !== -1) {
+      const start = Math.min(from, to);
+      const end = Math.max(from, to);
+      for (let i = start; i <= end; i++) {
+        state.selectedSlugs.add(slugs[i]);
+      }
+    }
+  } else {
+    // Plain click: toggle single
+    if (state.selectedSlugs.size === 1 && state.selectedSlugs.has(slug)) {
+      state.selectedSlugs.clear();
+    } else {
+      state.selectedSlugs.clear();
+      state.selectedSlugs.add(slug);
+    }
+  }
+  renderSessions();
+  renderEvents();
+  updateFilterHint();
+}
+
+function updateFilterHint() {
+  const el = document.getElementById('filterHint');
+  const n = state.selectedSlugs.size;
+  if (n === 0) {
+    el.textContent = 'Showing all sessions';
+  } else if (n === 1) {
+    el.textContent = 'Filtered: ' + [...state.selectedSlugs][0];
+  } else {
+    el.textContent = 'Filtered: ' + n + ' sessions';
+  }
+}
+
+function getFilteredEvents() {
+  return state.events.filter(ev => {
+    if (state.selectedSlugs.size > 0 && !state.selectedSlugs.has(ev.slug)) return false;
+    if (state.filterType && ev.type !== state.filterType) return false;
+    return true;
+  });
 }
 
 function renderEvents() {
   const el = document.getElementById('eventsList');
-  if (!state.events.length) {
-    el.innerHTML = '<div class="no-events">Waiting for events...</div>';
+  const filtered = getFilteredEvents();
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="no-data">No events match filter</div>';
     return;
   }
-  el.innerHTML = state.events.map(ev => {
-    const time = new Date(ev.timestamp).toLocaleTimeString('en-US', { hour12: false });
-    const decision = ev.routingDecision || '';
-    const badgeClass = decision || '';
-    return `<div class="event-row ${state.selectedEvent?.id === ev.id ? 'selected' : ''}" onclick="showDetail('${ev.id}')">
-      <span class="event-time">${time}</span>
-      <span class="event-slug" title="${ev.slug}">${ev.slug}</span>
-      <span class="event-type ${ev.type}">${ev.type}</span>
-      ${decision ? `<span class="badge ${badgeClass}">${decision.replace('_', ' ')}</span>` : '<span></span>'}
-      <span class="event-latency">${ev.durationMs !== undefined ? ev.durationMs + 'ms' : ''}</span>
-    </div>`;
-  }).join('');
-}
-
-function showDetail(id) {
-  const ev = state.events.find(e => e.id === id);
-  if (!ev) return;
-  state.selectedEvent = ev;
-
-  document.getElementById('eventsPanel').style.display = 'none';
-  const dp = document.getElementById('detailPanel');
-  dp.classList.add('visible');
 
   let html = '';
+  for (const ev of filtered) {
+    const time = new Date(ev.timestamp).toLocaleTimeString('en-US', { hour12: false });
+    const decision = ev.routingDecision || '';
+    const isExpanded = state.expandedEventId === ev.id;
+
+    html += `<div class="event-row" onclick="toggleEvent('${ev.id}')">
+      <span class="event-time">${time}</span>
+      <span class="event-slug" title="${esc(ev.slug)}">${esc(ev.slug)}</span>
+      <span class="badge ${ev.type}">${ev.type}</span>
+      ${decision ? `<span class="badge ${decision}">${decision.replace('_', ' ')}</span>` : '<span></span>'}
+      <span class="event-latency">${ev.durationMs !== undefined ? ev.durationMs + 'ms' : ''}</span>
+    </div>`;
+
+    if (isExpanded) {
+      html += renderEventDetail(ev);
+    }
+  }
+
+  el.innerHTML = html;
+}
+
+function renderEventDetail(ev) {
+  let html = '<div class="event-detail">';
 
   // Summary
-  html += `<div class="detail-section"><h3>Summary</h3><div class="detail-kv">
-    <span class="key">ID</span><span class="val">${ev.id}</span>
-    <span class="key">Time</span><span class="val">${ev.timestamp}</span>
-    <span class="key">Type</span><span class="val">${ev.type}</span>
-    <span class="key">Slug</span><span class="val">${ev.slug}</span>
-    <span class="key">Decision</span><span class="val">${ev.routingDecision || 'n/a'}</span>
-    <span class="key">Response</span><span class="val">${ev.responseStatus}</span>
-    <span class="key">Duration</span><span class="val">${ev.durationMs}ms</span>
-    ${ev.downstreamPort ? `<span class="key">Downstream</span><span class="val">:${ev.downstreamPort} (${ev.downstreamStatus || '?'})</span>` : ''}
-    ${ev.forwardDurationMs !== undefined ? `<span class="key">Forward time</span><span class="val">${ev.forwardDurationMs}ms</span>` : ''}
-    ${ev.error ? `<span class="key">Error</span><span class="val" style="color:var(--red)">${esc(ev.error)}</span>` : ''}
-  </div></div>`;
+  html += '<div class="detail-section"><h3>Summary</h3><div class="detail-kv">';
+  html += `<span class="key">ID</span><span class="val">${esc(ev.id)}</span>`;
+  html += `<span class="key">Time</span><span class="val">${ev.timestamp}</span>`;
+  html += `<span class="key">Type</span><span class="val">${ev.type}</span>`;
+  html += `<span class="key">Slug</span><span class="val">${esc(ev.slug)}</span>`;
+  html += `<span class="key">Decision</span><span class="val">${ev.routingDecision || 'n/a'}</span>`;
+  html += `<span class="key">Response</span><span class="val">${ev.responseStatus}</span>`;
+  html += `<span class="key">Duration</span><span class="val">${ev.durationMs}ms</span>`;
+  if (ev.downstreamPort) {
+    html += `<span class="key">Downstream</span><span class="val">:${ev.downstreamPort} (${ev.downstreamStatus || '?'})</span>`;
+  }
+  if (ev.forwardDurationMs !== undefined) {
+    html += `<span class="key">Forward time</span><span class="val">${ev.forwardDurationMs}ms</span>`;
+  }
+  if (ev.error) {
+    html += `<span class="key">Error</span><span class="val" style="color:var(--red)">${esc(ev.error)}</span>`;
+  }
+  html += '</div></div>';
 
   // Trace waterfall
   if (ev.traceSpans && ev.traceSpans.length) {
     const maxEnd = Math.max(...ev.traceSpans.map(s => s.endMs), 1);
-    html += `<div class="detail-section"><h3>Trace</h3><div class="trace-bar-container">`;
-    ev.traceSpans.forEach(s => {
+    html += '<div class="detail-section"><h3>Trace</h3>';
+    for (const s of ev.traceSpans) {
       const left = (s.startMs / maxEnd * 100).toFixed(1);
       const width = Math.max((s.durationMs / maxEnd * 100), 0.5).toFixed(1);
       html += `<div class="trace-row">
-        <span class="trace-label">${s.name}</span>
+        <span class="trace-label">${esc(s.name)}</span>
         <div class="trace-bar-track"><div class="trace-bar" style="left:${left}%;width:${width}%"></div></div>
         <span class="trace-duration">${s.durationMs}ms</span>
       </div>`;
-    });
-    html += `</div></div>`;
+    }
+    html += '</div>';
   }
 
   // Payload
@@ -480,15 +568,41 @@ function showDetail(id) {
       <div class="payload-block">${esc(JSON.stringify(ev.payload, null, 2))}</div></div>`;
   }
 
-  document.getElementById('detailContent').innerHTML = html;
+  html += '</div>';
+  return html;
 }
 
-function closeDetail() {
-  state.selectedEvent = null;
-  document.getElementById('detailPanel').classList.remove('visible');
-  document.getElementById('eventsPanel').style.display = '';
+// --- Actions ---
+
+function toggleEvent(id) {
+  state.expandedEventId = state.expandedEventId === id ? null : id;
   renderEvents();
 }
+
+async function killSession(slug) {
+  try {
+    const res = await fetch('/api/kill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_slug: slug }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      console.error('Kill failed:', data.error);
+    }
+  } catch (err) {
+    console.error('Kill failed:', err);
+  }
+}
+
+// --- Filters ---
+
+document.getElementById('filterType').addEventListener('change', (e) => {
+  state.filterType = e.target.value;
+  renderEvents();
+});
+
+// --- Helpers ---
 
 function timeAgo(iso) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -500,9 +614,17 @@ function timeAgo(iso) {
 
 function esc(s) {
   const d = document.createElement('div');
-  d.textContent = s;
+  d.textContent = String(s);
   return d.innerHTML;
 }
+
+// --- Live timestamps ---
+setInterval(() => {
+  document.querySelectorAll('.last-event-cell[data-ts]').forEach(el => {
+    const ts = el.getAttribute('data-ts');
+    if (ts) el.textContent = timeAgo(ts);
+  });
+}, 5000);
 
 // --- Init ---
 connectSSE();

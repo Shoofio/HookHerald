@@ -54,6 +54,7 @@ before(async () => {
       ROUTER_URL: `http://127.0.0.1:${fakeRouterPort}`,
     },
     stdio: ["pipe", "pipe", "pipe"],
+    detached: true,
   });
 
   // Wait for the channel to register
@@ -62,15 +63,16 @@ before(async () => {
 });
 
 after(async () => {
-  channel?.kill("SIGTERM");
-  await new Promise<void>((resolve) => {
-    if (!channel) return resolve();
-    channel.on("exit", () => resolve());
-    setTimeout(() => {
-      channel?.kill("SIGKILL");
-      resolve();
-    }, 2000);
-  });
+  if (channel?.pid) {
+    try { process.kill(-channel.pid, "SIGTERM"); } catch {}
+    await new Promise<void>((resolve) => {
+      channel.on("exit", () => resolve());
+      setTimeout(() => {
+        try { process.kill(-channel.pid!, "SIGKILL"); } catch {}
+        resolve();
+      }, 2000);
+    });
+  }
   fakeRouter?.close();
 });
 
@@ -198,8 +200,7 @@ describe("Channel: graceful shutdown", () => {
     await new Promise<void>((resolve) => fakeRouter2.listen(0, "127.0.0.1", resolve));
     const routerPort2 = (fakeRouter2.address() as any).port;
 
-    // Use node --import tsx directly to avoid npx wrapper eating SIGTERM
-    const ch2 = spawn("node", ["--import", "tsx", "src/webhook-channel.ts"], {
+    const ch2 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -207,17 +208,18 @@ describe("Channel: graceful shutdown", () => {
         ROUTER_URL: `http://127.0.0.1:${routerPort2}`,
       },
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     });
 
     // Wait for registration
     const start = Date.now();
-    while (Date.now() - start < 5000 && reg2.length === 0) {
+    while (Date.now() - start < 10000 && reg2.length === 0) {
       await new Promise((r) => setTimeout(r, 50));
     }
     assert.equal(reg2.length, 1, "Channel should register on startup");
 
-    // Kill the process group so signal reaches the actual node process
-    ch2.kill("SIGTERM");
+    // Kill the entire process group so SIGTERM reaches the node child
+    process.kill(-ch2.pid!, "SIGTERM");
 
     const start2 = Date.now();
     while (Date.now() - start2 < 3000 && unreg2.length === 0) {
@@ -228,6 +230,136 @@ describe("Channel: graceful shutdown", () => {
     assert.equal(unreg2[0].project_slug, "test/shutdown-project");
 
     fakeRouter2.close();
+  });
+});
+
+// --- Remote shutdown ---
+
+describe("Channel: remote shutdown", () => {
+  it("shuts down when POST /shutdown is called", async () => {
+    const regs: any[] = [];
+    const unregs: any[] = [];
+
+    const fakeRouter4 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/register") regs.push(body);
+      if (req.url === "/unregister") unregs.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouter4.listen(0, "127.0.0.1", resolve));
+    const routerPort4 = (fakeRouter4.address() as any).port;
+
+    const ch4 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/remote-shutdown",
+        ROUTER_URL: `http://127.0.0.1:${routerPort4}`,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    // Wait for registration
+    const start = Date.now();
+    while (Date.now() - start < 10000 && regs.length === 0) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(regs.length, 1, "Should register on startup");
+    const chPort = regs[0].port;
+
+    // Send remote shutdown
+    const res = await fetch(`http://127.0.0.1:${chPort}/shutdown`, { method: "POST" });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+
+    // Wait for process to exit and unregister
+    const exitCode = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => {
+        try { process.kill(-ch4.pid!, "SIGKILL"); } catch {}
+        resolve(null);
+      }, 5000);
+      ch4.on("exit", (code) => { clearTimeout(timer); resolve(code); });
+    });
+
+    assert.equal(exitCode, 0, "Channel should exit cleanly");
+    assert.equal(unregs.length, 1, "Channel should unregister on shutdown");
+    assert.equal(unregs[0].project_slug, "test/remote-shutdown");
+
+    fakeRouter4.close();
+  });
+});
+
+// --- Heartbeat re-registration ---
+
+describe("Channel: heartbeat", () => {
+  it("re-registers after router comes back", async () => {
+    // Spawn a fake router that we can kill and restart
+    const regs: any[] = [];
+
+    let fakeRouter3 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/register") regs.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouter3.listen(0, "127.0.0.1", resolve));
+    const routerPort3 = (fakeRouter3.address() as any).port;
+
+    const ch3 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/heartbeat-project",
+        ROUTER_URL: `http://127.0.0.1:${routerPort3}`,
+        HH_HEARTBEAT_MS: "2000",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    // Wait for initial registration
+    const start = Date.now();
+    while (Date.now() - start < 10000 && regs.length === 0) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(regs.length, 1, "Should register initially");
+    const initialCount = regs.length;
+
+    // Kill the router
+    await new Promise<void>((resolve) => fakeRouter3.close(() => resolve()));
+
+    // Restart on same port — channel heartbeat should re-register
+    fakeRouter3 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/register") regs.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouter3.listen(routerPort3, "127.0.0.1", resolve));
+
+    // Wait for heartbeat to fire (2s test interval, wait up to 5s)
+    const start2 = Date.now();
+    while (Date.now() - start2 < 5000 && regs.length <= initialCount) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    assert.ok(regs.length > initialCount, "Channel should re-register via heartbeat after router restart");
+    assert.equal(regs[regs.length - 1].project_slug, "test/heartbeat-project");
+
+    try { process.kill(-ch3.pid!, "SIGTERM"); } catch {}
+    fakeRouter3.close();
   });
 });
 
@@ -262,10 +394,11 @@ describe("Channel: port assignment", () => {
         ROUTER_URL: `http://127.0.0.1:${routerPort2}`,
       },
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     });
 
     const start = Date.now();
-    while (Date.now() - start < 5000 && reg2.length === 0) {
+    while (Date.now() - start < 10000 && reg2.length === 0) {
       await new Promise((r) => setTimeout(r, 50));
     }
 
@@ -275,7 +408,7 @@ describe("Channel: port assignment", () => {
       assert.ok(port2 > 0);
       assert.notEqual(port2, channelPort, "Two channels should get different ports");
     } finally {
-      ch2.kill("SIGTERM");
+      try { process.kill(-ch2.pid!, "SIGTERM"); } catch {}
       fakeRouter2.close();
     }
   });

@@ -6,7 +6,8 @@
   "scripts": {
     "router": "npx tsx src/webhook-router.ts",
     "channel": "npx tsx src/webhook-channel.ts",
-    "test": "npx tsx --test-force-exit --test tests/observability.test.ts && npx tsx --test-force-exit --test tests/channel.test.ts && npx tsx --test-force-exit --test tests/router.test.ts"
+    "build:cli": "go build -o hh ./cmd/hh/",
+    "test": "npx tsx --test-force-exit --test tests/observability.test.ts && npx tsx --test-force-exit --test tests/channel.test.ts && npx tsx --test-force-exit --test tests/router.test.ts && npx tsx --test-force-exit --test tests/cli.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

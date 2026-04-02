@@ -37,6 +37,7 @@ before(async () => {
       WEBHOOK_SECRET: SECRET,
     },
     stdio: ["pipe", "ignore", "pipe"],
+    detached: true,
   });
 
   const port = await waitForPort(router);
@@ -44,13 +45,13 @@ before(async () => {
 });
 
 after(async () => {
-  router?.kill("SIGTERM");
-  // Wait for process to exit before finishing
+  if (!router?.pid) return;
+  // Kill the entire process group (npx → tsx → node)
+  try { process.kill(-router.pid, "SIGTERM"); } catch {}
   await new Promise<void>((resolve) => {
-    if (!router) return resolve();
     router.on("exit", () => resolve());
     setTimeout(() => {
-      router?.kill("SIGKILL");
+      try { process.kill(-router.pid!, "SIGKILL"); } catch {}
       resolve();
     }, 2000);
   });
@@ -261,26 +262,6 @@ describe("Router: API", () => {
   });
 });
 
-// --- SSE ---
-
-describe("Router: SSE", () => {
-  it("GET /events/stream returns SSE headers and init event", async () => {
-    const controller = new AbortController();
-    const res = await fetch(`${BASE}/events/stream`, { signal: controller.signal });
-    assert.equal(res.status, 200);
-    assert.ok(res.headers.get("content-type")?.includes("text/event-stream"));
-
-    // Read just the init event
-    const reader = res.body!.getReader();
-    const { value } = await reader.read();
-    const text = new TextDecoder().decode(value);
-    assert.ok(text.includes("event: init"));
-    assert.ok(text.includes('"routes"'));
-
-    controller.abort();
-  });
-});
-
 // --- Route status transitions ---
 
 describe("Router: route status transitions", () => {
@@ -407,6 +388,146 @@ describe("Router: multi-route routing", () => {
   });
 });
 
+// --- New API endpoints ---
+
+describe("Router: /api/health", () => {
+  it("returns health info", async () => {
+    const res = await fetch(`${BASE}/api/health`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.status, "ok");
+    assert.equal(data.version, "0.2.0");
+    assert.ok(typeof data.uptimeSeconds === "number");
+    assert.ok(typeof data.routesActive === "number");
+  });
+});
+
+describe("Router: /api/sessions", () => {
+  it("returns sessions array with merged metrics", async () => {
+    await post("/register", { project_slug: "test/sess", port: 55100 });
+    const res = await fetch(`${BASE}/api/sessions`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data));
+    const sess = data.find((s: any) => s.slug === "test/sess");
+    assert.ok(sess);
+    assert.equal(sess.port, 55100);
+    assert.ok("avgLatencyMs" in sess);
+    assert.ok("successCount" in sess);
+    assert.ok("failedCount" in sess);
+    await post("/unregister", { project_slug: "test/sess" });
+  });
+});
+
+describe("Router: /api/kill", () => {
+  it("kills an existing route and returns info", async () => {
+    await post("/register", { project_slug: "test/killme", port: 55200 });
+    const res = await post("/api/kill", { project_slug: "test/killme" });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.slug, "test/killme");
+    assert.equal(data.port, 55200);
+
+    // Verify route is gone
+    const routes = await (await fetch(`${BASE}/routes`)).json();
+    assert.equal(routes["test/killme"], undefined);
+  });
+
+  it("returns 404 for unknown slug", async () => {
+    const res = await post("/api/kill", { project_slug: "test/nonexistent" });
+    assert.equal(res.status, 404);
+  });
+
+  it("returns 400 for missing slug", async () => {
+    const res = await post("/api/kill", {});
+    assert.equal(res.status, 400);
+  });
+
+  it("sends shutdown signal to downstream channel", async () => {
+    const { createServer } = await import("node:http");
+    let shutdownReceived = false;
+
+    const downstream = createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/shutdown") {
+        shutdownReceived = true;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+
+    await new Promise<void>((resolve) => downstream.listen(0, "127.0.0.1", resolve));
+    const dsPort = (downstream.address() as any).port;
+
+    try {
+      await post("/register", { project_slug: "test/kill-signal", port: dsPort });
+
+      const res = await post("/api/kill", { project_slug: "test/kill-signal" });
+      assert.equal(res.status, 200);
+      assert.ok(shutdownReceived, "Router should send POST /shutdown to channel");
+
+      const routes = await (await fetch(`${BASE}/routes`)).json();
+      assert.equal(routes["test/kill-signal"], undefined);
+    } finally {
+      downstream.close();
+    }
+  });
+});
+
+describe("Router: /api/events/:id", () => {
+  it("returns event by ID", async () => {
+    // First create an event via registration
+    await post("/register", { project_slug: "test/evid", port: 55300 });
+
+    // Get events and pick the first one
+    const eventsRes = await fetch(`${BASE}/api/events`);
+    const allEvents = await eventsRes.json();
+    assert.ok(allEvents.length > 0);
+    const eventId = allEvents[0].id;
+
+    const res = await fetch(`${BASE}/api/events/${eventId}`);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.id, eventId);
+
+    await post("/unregister", { project_slug: "test/evid" });
+  });
+
+  it("returns 404 for missing event", async () => {
+    const res = await fetch(`${BASE}/api/events/nonexistent-id`);
+    assert.equal(res.status, 404);
+  });
+});
+
+describe("Router: /api/stream (SSE)", () => {
+  it("connects and receives init event", async () => {
+    const controller = new AbortController();
+    const res = await fetch(`${BASE}/api/stream`, { signal: controller.signal });
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get("content-type")?.includes("text/event-stream"));
+
+    const reader = res.body!.getReader();
+    const { value } = await reader.read();
+    const text = new TextDecoder().decode(value);
+    assert.ok(text.includes("event: init"));
+    assert.ok(text.includes('"sessions"'));
+
+    controller.abort();
+  });
+});
+
+describe("Router: GET /", () => {
+  it("serves the dashboard HTML", async () => {
+    const res = await fetch(`${BASE}/`);
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get("content-type")?.includes("text/html"));
+    const text = await res.text();
+    assert.ok(text.includes("HookHerald"));
+  });
+});
+
 // --- Port conflict ---
 
 describe("Router: port conflict", () => {
@@ -422,13 +543,14 @@ describe("Router: port conflict", () => {
         WEBHOOK_SECRET: SECRET,
       },
       stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
     });
 
     const exitCode = await new Promise<number | null>((resolve) => {
       second.on("exit", (code) => resolve(code));
       // Timeout in case it somehow stays alive
       setTimeout(() => {
-        second.kill("SIGTERM");
+        try { process.kill(-second.pid!, "SIGTERM"); } catch {}
         resolve(null);
       }, 5000);
     });

@@ -4,8 +4,6 @@ import {
   EventStore,
   MetricsCollector,
   createTrace,
-  endSpan,
-  closeSpan,
   truncatePayload,
   newEventId,
   type RouterEvent,
@@ -168,20 +166,20 @@ describe("MetricsCollector", () => {
   it("formatPrometheus produces valid output", () => {
     m.recordRequest(200);
     m.recordWebhook("forwarded", "slug/a", 100);
-    const text = m.formatPrometheus();
+    const text = m.formatPrometheus({ routesActive: 3 });
     assert.ok(text.includes("hookherald_uptime_seconds"));
     assert.ok(text.includes('hookherald_requests_total{status="200"} 1'));
     assert.ok(text.includes('hookherald_webhooks_total{outcome="forwarded"} 1'));
     assert.ok(text.includes('hookherald_webhook_avg_duration_ms{slug="slug/a"} 100'));
     assert.ok(text.includes("hookherald_registrations_total 0"));
-    // Placeholder for routes count
-    assert.ok(text.includes("__ROUTES_COUNT__"));
+    assert.ok(text.includes("hookherald_routes_active 3"));
+    assert.ok(!text.includes("__ROUTES_COUNT__"));
   });
 });
 
 // --- Trace helpers ---
 
-describe("createTrace / endSpan / closeSpan", () => {
+describe("createTrace", () => {
   it("creates spans with sequential timing", () => {
     const trace = createTrace();
     const s1 = trace.span("first");
@@ -190,32 +188,24 @@ describe("createTrace / endSpan / closeSpan", () => {
     assert.ok(s2.startMs >= s1.startMs);
   });
 
-  it("endSpan sets duration", () => {
+  it("trace.end() sets duration correctly", () => {
     const trace = createTrace();
     const s = trace.span("work");
     // Simulate some time passing
     const busyWait = performance.now() + 5;
     while (performance.now() < busyWait) {}
-    endSpan(s);
-    // Without origin, endMs = startMs, durationMs = 0
-    assert.equal(s.durationMs, 0);
+    trace.end(s);
+    assert.ok(s.endMs >= s.startMs);
+    assert.ok(s.durationMs >= 0);
+    assert.equal(s.durationMs, s.endMs - s.startMs);
   });
 
-  it("endSpan with origin computes relative timing", () => {
-    const origin = performance.now();
-    const s = { name: "test", startMs: 10, endMs: 10, durationMs: 0 };
-    // Wait a tiny bit so now - origin > 10
-    const busyWait = performance.now() + 15;
+  it("trace.elapsed() returns total time since trace creation", () => {
+    const trace = createTrace();
+    const busyWait = performance.now() + 5;
     while (performance.now() < busyWait) {}
-    endSpan(s, origin);
-    assert.ok(s.endMs > s.startMs);
-    assert.ok(s.durationMs > 0);
-  });
-
-  it("closeSpan sets endMs from startMs + durationMs", () => {
-    const s = { name: "test", startMs: 100, endMs: 0, durationMs: 50 };
-    closeSpan(s);
-    assert.equal(s.endMs, 150);
+    const elapsed = trace.elapsed();
+    assert.ok(elapsed >= 5);
   });
 });
 
