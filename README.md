@@ -42,11 +42,15 @@ export HH_HOME=/path/to/hookherald
 ## Docker
 
 ```bash
+# Pull from Docker Hub
+docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret shoofio/hookherald
+
+# Or build locally
 docker build -t hookherald .
 docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
 ```
 
-Dashboard at `http://localhost:9000/`. That's it — no Node install, no repo clone needed on the host.
+Dashboard at `http://localhost:9000/`. No Node install, no repo clone needed on the host.
 
 ## Usage
 

@@ -47,8 +47,7 @@ hh kill <slug> [--router-url <u>]          # Bounce a session (Claude Code respa
 hh router [--port <p>] [--secret <s>]      # Start the webhook router
 
 # Docker
-docker build -t hookherald .
-docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
+docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret shoofio/hookherald
 
 # Node (development)
 npm run router          # Start the webhook router (default port 9000)
