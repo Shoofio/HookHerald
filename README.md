@@ -16,55 +16,22 @@ Payloads are forwarded as raw JSON — send whatever you want, the agent figures
 ## Install
 
 ```bash
-# Clone and build
-git clone <repo-url> && cd hookherald
-npm install
-go build -ldflags "-X main.projectRoot=$(pwd)" -o hh ./cmd/hh/
-
-# Option A: install for current user (no sudo)
-mkdir -p ~/.local/bin
-cp hh ~/.local/bin/hh
-# Make sure ~/.local/bin is in your PATH (add to ~/.zshrc or ~/.bashrc):
-#   export PATH="$HOME/.local/bin:$PATH"
-
-# Option B: install system-wide
-sudo cp hh /usr/local/bin/hh
+npm install -g hookherald
 ```
 
-Requires: Node.js, Go (build only — the `hh` binary has no runtime dependencies).
-
-The project root is embedded in the binary at build time. If you move the repo after building, set `HH_HOME` to point to it:
-
-```bash
-export HH_HOME=/path/to/hookherald
-```
-
-## Docker
-
-```bash
-# Pull from Docker Hub
-docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret shoofio/hookherald
-
-# Or build locally
-docker build -t hookherald .
-docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
-```
-
-Dashboard at `http://localhost:9000/`. No Node install, no repo clone needed on the host.
+That's it. Requires Node.js >= 18.
 
 ## Usage
 
 ### 1. Start the router
 
 ```bash
-# Native
-hh router
-
-# Docker
-docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret hookherald
+hh router             # foreground (see logs, ctrl+c to stop)
+hh router --bg        # background (detach, write PID file)
+hh router stop        # stop background router
 ```
 
-Starts on `127.0.0.1:9000`. Dashboard at `http://127.0.0.1:9000/`.
+Dashboard at `http://127.0.0.1:9000/`.
 
 ### 2. Set up a project
 
@@ -81,7 +48,7 @@ Auto-detects the project slug from `git remote origin` and writes `.mcp.json`. M
 claude --dangerously-load-development-channels server:webhook-channel
 ```
 
-The channel starts, registers with the router, and maintains a heartbeat. If the router restarts, the channel reconnects automatically.
+The channel starts, registers with the router, and maintains a heartbeat. If the router restarts, the channel reconnects automatically. When the session ends, the channel cleans up after itself.
 
 ### 4. Send webhooks
 
@@ -103,13 +70,25 @@ hh init   [--slug <slug>] [--router-url <url>]   Set up .mcp.json in current dir
 hh status [--router-url <url>]                    Show active sessions
 hh kill   <slug> [--router-url <url>]             Bounce a session (Claude Code respawns it)
 hh router [--port <port>] [--secret <secret>]     Start the webhook router
+          [--bg]                                  Run in background
+hh router stop                                    Stop background router
 ```
+
+## Docker
+
+The router can also run via Docker. Requires `--network host` to reach channel processes on localhost:
+
+```bash
+docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
+```
+
+> **Note:** `--network host` requires Linux with standard Docker. For rootless Docker or Docker Desktop (Mac/Windows), use `hh router` instead.
 
 ## Router API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/` | Receive webhook (requires `X-Gitlab-Token` header) |
+| `POST` | `/` | Receive webhook (requires `X-Webhook-Token` or `X-Gitlab-Token` header) |
 | `POST` | `/register` | Channel self-registration |
 | `POST` | `/unregister` | Channel self-unregistration |
 | `POST` | `/api/kill` | Remove a session (signals channel to shut down) |
@@ -148,7 +127,7 @@ notify:
     - |
       curl -s -X POST http://$ROUTER_HOST:9000/ \
         -H "Content-Type: application/json" \
-        -H "X-Gitlab-Token: $WEBHOOK_SECRET" \
+        -H "X-Webhook-Token: $WEBHOOK_SECRET" \
         -d "{\"project_slug\":\"$CI_PROJECT_PATH\",\"status\":\"$CI_PIPELINE_STATUS\",\"branch\":\"$CI_COMMIT_BRANCH\",\"sha\":\"$CI_COMMIT_SHA\",\"pipeline\":\"$CI_PIPELINE_URL\"}"
 ```
 
@@ -163,12 +142,15 @@ notify:
 | `ROUTER_URL` | `http://127.0.0.1:9000` | Channel's router address |
 | `LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
 | `HH_HEARTBEAT_MS` | `30000` | Channel heartbeat interval |
-| `HH_HOME` | — | Override project root for CLI |
+
+## Alternative: Go CLI
+
+A compiled Go binary is also available for faster startup (~5ms vs ~700ms). See `cmd/hh/` and [releases](https://github.com/Shoofio/HookHerald/releases).
 
 ## Testing
 
 ```bash
-npm test    # 77 tests across 4 suites
+npm test    # 79 tests across 4 suites
 ```
 
 Tests are integration-heavy — they spawn real processes and make real HTTP requests. Safe to run with a live router.

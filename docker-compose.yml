@@ -1,0 +1,7 @@
+services:
+  router:
+    image: shoofio/hookherald
+    network_mode: host
+    environment:
+      - WEBHOOK_SECRET=dev-secret
+    restart: unless-stopped

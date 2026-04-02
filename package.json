@@ -1,12 +1,22 @@
 {
   "name": "hookherald",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0",
+  "description": "Webhook relay for Claude Code — push notifications from any HTTP POST into running sessions",
   "type": "module",
+  "bin": {
+    "hh": "bin/hh"
+  },
+  "files": [
+    "src/",
+    "bin/"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "router": "npx tsx src/webhook-router.ts",
     "channel": "npx tsx src/webhook-channel.ts",
-    "build:cli": "go build -o hh ./cmd/hh/",
+    "build:go": "go build -ldflags \"-X main.projectRoot=$(pwd)\" -o hh ./cmd/hh/",
     "test": "npx tsx --test-force-exit --test tests/observability.test.ts && npx tsx --test-force-exit --test tests/channel.test.ts && npx tsx --test-force-exit --test tests/router.test.ts && npx tsx --test-force-exit --test tests/cli.test.ts"
   },
   "dependencies": {

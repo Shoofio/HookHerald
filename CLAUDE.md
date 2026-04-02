@@ -17,8 +17,8 @@ The setup: each Claude Code session spawns a webhook channel server as an MCP su
 ## Quick Start
 
 ```bash
-# 1. Build the CLI
-go build -ldflags "-X main.projectRoot=$(pwd)" -o hh ./cmd/hh/
+# 1. Install
+npm install -g hookherald
 
 # 2. Start the router
 hh router
@@ -40,21 +40,24 @@ curl -X POST http://127.0.0.1:9000/ \
 ## Commands
 
 ```bash
-# CLI (Go binary)
+# CLI
 hh init [--slug <s>] [--router-url <u>]   # Set up .mcp.json in current directory
 hh status [--router-url <u>]               # Show active sessions
 hh kill <slug> [--router-url <u>]          # Bounce a session (Claude Code respawns it)
 hh router [--port <p>] [--secret <s>]      # Start the webhook router
+hh router --bg                             # Start router in background
+hh router stop                             # Stop background router
+hh router stop                             # Stop background router
 
 # Docker
-docker run -d -p 9000:9000 -e WEBHOOK_SECRET=my-secret shoofio/hookherald
+docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
 
 # Node (development)
 npm run router          # Start the webhook router (default port 9000)
 npm run channel         # Start an MCP channel server
 npm test                # Run all test suites (observability, channel, router, cli)
 
-# Build CLI
+# Build Go CLI (optional, for faster startup)
 go build -ldflags "-X main.projectRoot=$(pwd)" -o hh ./cmd/hh/
 
 # Run a single test suite
@@ -72,7 +75,7 @@ npx tsx --test-force-exit --test tests/cli.test.ts
 
 **Observability** (`src/observability.ts`) — Shared library. Structured JSON logger, `EventStore` (ring buffer), `MetricsCollector` (request counts, per-route latency, Prometheus formatting), trace spans with `trace.end(span)` / `trace.elapsed()` API, and payload truncation.
 
-**CLI** (`cmd/hh/main.go`) — Go binary for project setup and session management. Auto-detects project slug from git remote. The project root is embedded at build time via `-ldflags`.
+**CLI** (`src/cli.ts`) — TypeScript CLI installed via npm. Auto-detects project slug from git remote. Resolves channel/router paths relative to the package install location. Also available as a Go binary (`cmd/hh/main.go`) for faster startup.
 
 ## Data Flow
 

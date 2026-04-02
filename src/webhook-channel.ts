@@ -150,5 +150,15 @@ process.on("SIGINT", shutdown);
 
 // --- Connect MCP over stdio ---
 const transport = new StdioServerTransport();
+transport.onclose = () => {
+  log.info("MCP transport closed, shutting down");
+  shutdown();
+};
 await mcp.connect(transport);
 log.info("MCP server connected via stdio");
+
+// Fallback: if stdin closes (parent died), shut down even if transport doesn't notice
+process.stdin.on("end", () => {
+  log.info("stdin closed, shutting down");
+  shutdown();
+});

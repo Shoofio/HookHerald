@@ -9,17 +9,17 @@ import { createServer, type Server } from "node:http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
-const HH_BIN = resolve(PROJECT_ROOT, "hh");
+const CLI_PATH = resolve(PROJECT_ROOT, "src", "cli.ts");
 
 // Sync helper for commands that don't need a server running
 function runCliSync(args: string[], opts: { cwd?: string } = {}): { stdout: string; stderr: string; status: number } {
   try {
-    const stdout = execSync(`${HH_BIN} ${args.join(" ")}`, {
+    const stdout = execSync(`npx tsx ${CLI_PATH} ${args.join(" ")}`, {
       cwd: opts.cwd || PROJECT_ROOT,
       env: process.env,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      timeout: 15000,
     });
     return { stdout, stderr: "", status: 0 };
   } catch (err: any) {
@@ -30,7 +30,7 @@ function runCliSync(args: string[], opts: { cwd?: string } = {}): { stdout: stri
 // Async helper for commands that need a mock server to respond concurrently
 function runCliAsync(args: string[], opts: { cwd?: string } = {}): Promise<{ stdout: string; stderr: string; status: number }> {
   return new Promise((resolve) => {
-    const child = spawn(HH_BIN, args, {
+    const child = spawn("npx", ["tsx", CLI_PATH, ...args], {
       cwd: opts.cwd || PROJECT_ROOT,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -44,7 +44,7 @@ function runCliAsync(args: string[], opts: { cwd?: string } = {}): Promise<{ std
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       resolve({ stdout, stderr, status: 1 });
-    }, 5000);
+    }, 15000);
 
     child.on("exit", (code) => {
       clearTimeout(timer);
@@ -52,11 +52,6 @@ function runCliAsync(args: string[], opts: { cwd?: string } = {}): Promise<{ std
     });
   });
 }
-
-// Build the binary before tests
-before(() => {
-  execSync("go build -o hh ./cmd/hh/", { cwd: PROJECT_ROOT, stdio: "pipe" });
-});
 
 // --- hh init ---
 
@@ -80,7 +75,8 @@ describe("CLI: init", () => {
     assert.ok(config.mcpServers["webhook-channel"]);
     assert.equal(config.mcpServers["webhook-channel"].env.PROJECT_SLUG, "test/project");
     assert.equal(config.mcpServers["webhook-channel"].env.ROUTER_URL, "http://127.0.0.1:9000");
-    assert.ok(config.mcpServers["webhook-channel"].args[1].endsWith("webhook-channel.ts"));
+    const chArgs: string[] = config.mcpServers["webhook-channel"].args;
+    assert.ok(chArgs.some((a: string) => a.endsWith("webhook-channel.ts")));
   });
 
   it("merges with existing .mcp.json", () => {
