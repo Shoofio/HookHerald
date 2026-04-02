@@ -71,11 +71,13 @@ The channel starts, registers with the router, and maintains a heartbeat. If the
 ```bash
 curl -X POST http://127.0.0.1:9000/ \
   -H "Content-Type: application/json" \
-  -H "X-Gitlab-Token: dev-secret" \
+  -H "X-Webhook-Token: dev-secret" \
   -d '{"project_slug":"my-group/my-project","status":"deployed","version":"1.2.3"}'
 ```
 
-The only required field is `project_slug` — everything else passes through as-is.
+The only required field is `project_slug` for routing — everything else passes through as raw JSON.
+
+The `X-Webhook-Token` header authenticates the request against `WEBHOOK_SECRET`. GitLab sends this natively as `X-Gitlab-Token` when you configure a webhook secret — the router accepts both headers.
 
 ## CLI Reference
 

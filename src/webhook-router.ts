@@ -142,7 +142,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
 
   // Auth
   const authSpan = trace.span("auth_validate");
-  const token = req.headers["x-gitlab-token"];
+  const token = req.headers["x-webhook-token"] || req.headers["x-gitlab-token"];
   if (token !== SECRET) {
     trace.end(authSpan);
     log.warn("rejected: invalid token", { traceId });

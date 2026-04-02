@@ -114,8 +114,19 @@ describe("Router: webhook auth", () => {
   });
 
   it("rejects wrong token", async () => {
-    const res = await post("/", { project_slug: "test/alpha" }, { "X-Gitlab-Token": "wrong" });
+    const res = await post("/", { project_slug: "test/alpha" }, { "X-Webhook-Token": "wrong" });
     assert.equal(res.status, 401);
+  });
+
+  it("accepts X-Webhook-Token", async () => {
+    const res = await post("/", { project_slug: "test/alpha" }, { "X-Webhook-Token": SECRET });
+    // 404 or 502 means auth passed (no route or unreachable downstream)
+    assert.ok(res.status !== 401);
+  });
+
+  it("accepts X-Gitlab-Token for backwards compat", async () => {
+    const res = await post("/", { project_slug: "test/alpha" }, { "X-Gitlab-Token": SECRET });
+    assert.ok(res.status !== 401);
   });
 });
 
@@ -125,7 +136,7 @@ describe("Router: webhook routing", () => {
   it("returns 400 for invalid JSON", async () => {
     const res = await fetch(`${BASE}/`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Gitlab-Token": SECRET },
+      headers: { "Content-Type": "application/json", "X-Webhook-Token": SECRET },
       body: "not json",
     });
     assert.equal(res.status, 400);
@@ -134,7 +145,7 @@ describe("Router: webhook routing", () => {
   });
 
   it("returns 400 for missing project_slug", async () => {
-    const res = await post("/", { foo: "bar" }, { "X-Gitlab-Token": SECRET });
+    const res = await post("/", { foo: "bar" }, { "X-Webhook-Token": SECRET });
     assert.equal(res.status, 400);
     const data = await res.json();
     assert.ok(data.error.includes("project_slug"));
@@ -144,7 +155,7 @@ describe("Router: webhook routing", () => {
     const res = await post(
       "/",
       { project_slug: "unknown/project" },
-      { "X-Gitlab-Token": SECRET },
+      { "X-Webhook-Token": SECRET },
     );
     assert.equal(res.status, 404);
   });
@@ -162,7 +173,7 @@ describe("Router: webhook routing", () => {
         commit_title: "test",
         pipeline_url: "http://example.com",
       },
-      { "X-Gitlab-Token": SECRET },
+      { "X-Webhook-Token": SECRET },
     );
     assert.equal(res.status, 502);
   });
@@ -193,7 +204,7 @@ describe("Router: webhook routing", () => {
           commit_title: "break things",
           pipeline_url: "http://ci.test/99",
         },
-        { "X-Gitlab-Token": SECRET },
+        { "X-Webhook-Token": SECRET },
       );
       assert.equal(res.status, 200);
       const data = await res.json();
@@ -275,7 +286,7 @@ describe("Router: route status transitions", () => {
     await post(
       "/",
       { project_slug: "test/flaky", pipeline_status: "success" },
-      { "X-Gitlab-Token": SECRET },
+      { "X-Webhook-Token": SECRET },
     );
     let routes = await (await fetch(`${BASE}/routes`)).json();
     assert.equal(routes["test/flaky"].status, "down");
@@ -295,7 +306,7 @@ describe("Router: route status transitions", () => {
     await post(
       "/",
       { project_slug: "test/flaky", pipeline_status: "success" },
-      { "X-Gitlab-Token": SECRET },
+      { "X-Webhook-Token": SECRET },
     );
     routes = await (await fetch(`${BASE}/routes`)).json();
     assert.equal(routes["test/flaky"].status, "up");
@@ -364,17 +375,17 @@ describe("Router: multi-route routing", () => {
       await post(
         "/",
         { project_slug: "multi/alpha", pipeline_status: "success" },
-        { "X-Gitlab-Token": SECRET },
+        { "X-Webhook-Token": SECRET },
       );
       await post(
         "/",
         { project_slug: "multi/beta", pipeline_status: "failed" },
-        { "X-Gitlab-Token": SECRET },
+        { "X-Webhook-Token": SECRET },
       );
       await post(
         "/",
         { project_slug: "multi/alpha", pipeline_status: "failed" },
-        { "X-Gitlab-Token": SECRET },
+        { "X-Webhook-Token": SECRET },
       );
 
       assert.deepEqual(receivedByA, ["multi/alpha", "multi/alpha"]);
