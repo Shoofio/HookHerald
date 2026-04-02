@@ -1,0 +1,15 @@
+{
+  "name": "hookherald",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "router": "npx tsx src/webhook-router.ts",
+    "channel": "npx tsx src/webhook-channel.ts",
+    "test": "npx tsx --test-force-exit --test tests/observability.test.ts && npx tsx --test-force-exit --test tests/channel.test.ts && npx tsx --test-force-exit --test tests/router.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "tsx": "^4.19.0"
+  }
+}

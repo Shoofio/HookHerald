@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "webhook-channel": {
+      "command": "npx",
+      "args": ["tsx", "/home/shoof/homelab-rke2/empty/src/webhook-channel.ts"],
+      "env": {
+        "PROJECT_SLUG": "group/project-alpha",
+        "ROUTER_URL": "http://127.0.0.1:9000"
+      }
+    }
+  }
+}
