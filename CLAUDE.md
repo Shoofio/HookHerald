@@ -47,7 +47,6 @@ hh kill <slug> [--router-url <u>]          # Bounce a session (Claude Code respa
 hh router [--port <p>] [--secret <s>]      # Start the webhook router
 hh router --bg                             # Start router in background
 hh router stop                             # Stop background router
-hh router stop                             # Stop background router
 
 # Docker
 docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
@@ -56,9 +55,6 @@ docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
 npm run router          # Start the webhook router (default port 9000)
 npm run channel         # Start an MCP channel server
 npm test                # Run all test suites (observability, channel, router, cli)
-
-# Build Go CLI (optional, for faster startup)
-go build -ldflags "-X main.projectRoot=$(pwd)" -o hh ./cmd/hh/
 
 # Run a single test suite
 npx tsx --test-force-exit --test tests/observability.test.ts
@@ -75,7 +71,7 @@ npx tsx --test-force-exit --test tests/cli.test.ts
 
 **Observability** (`src/observability.ts`) — Shared library. Structured JSON logger, `EventStore` (ring buffer), `MetricsCollector` (request counts, per-route latency, Prometheus formatting), trace spans with `trace.end(span)` / `trace.elapsed()` API, and payload truncation.
 
-**CLI** (`src/cli.ts`) — TypeScript CLI installed via npm. Auto-detects project slug from git remote. Resolves channel/router paths relative to the package install location. Also available as a Go binary (`cmd/hh/main.go`) for faster startup.
+**CLI** (`src/cli.ts`) — TypeScript CLI installed via npm. Auto-detects project slug from git remote. Resolves channel/router paths relative to the package install location.
 
 ## Data Flow
 
@@ -94,4 +90,3 @@ Tests are integration-heavy (79 tests across 4 suites). Router and channel tests
 - `ROUTER_URL` — Channel's router address (default: http://127.0.0.1:9000)
 - `LOG_LEVEL` — debug/info/warn/error (default: info)
 - `HH_HEARTBEAT_MS` — Channel heartbeat interval in ms (default: 30000)
-- `HH_HOME` — Override HookHerald project root for CLI (alternative to build-time embedding)
