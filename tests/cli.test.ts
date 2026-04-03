@@ -64,6 +64,7 @@ describe("CLI: init", () => {
 
   afterEach(() => {
     try { unlinkSync(join(tmpDir, ".mcp.json")); } catch {}
+    try { unlinkSync(join(tmpDir, ".hookherald.json")); } catch {}
   });
 
   it("creates .mcp.json with correct structure", () => {
@@ -100,6 +101,35 @@ describe("CLI: init", () => {
 
     const config = JSON.parse(readFileSync(join(tmpDir, ".mcp.json"), "utf-8"));
     assert.equal(config.mcpServers["webhook-channel"].env.ROUTER_URL, "http://10.0.0.1:8080");
+  });
+
+  it("creates .hookherald.json with correct structure", () => {
+    const result = runCliSync(["init", "--slug", "test/hhconfig"], { cwd: tmpDir });
+    assert.equal(result.status, 0);
+
+    const hhConfig = JSON.parse(readFileSync(join(tmpDir, ".hookherald.json"), "utf-8"));
+    assert.equal(hhConfig.slug, "test/hhconfig");
+    assert.equal(hhConfig.router_url, "http://127.0.0.1:9000");
+    assert.deepEqual(hhConfig.watchers, []);
+  });
+
+  it("sets HH_CONFIG_PATH in .mcp.json env", () => {
+    runCliSync(["init", "--slug", "test/configpath"], { cwd: tmpDir });
+
+    const config = JSON.parse(readFileSync(join(tmpDir, ".mcp.json"), "utf-8"));
+    const env = config.mcpServers["webhook-channel"].env;
+    assert.ok(env.HH_CONFIG_PATH);
+    assert.ok(env.HH_CONFIG_PATH.endsWith(".hookherald.json"));
+  });
+
+  it("does not overwrite existing .hookherald.json", () => {
+    const existing = { slug: "custom/slug", router_url: "http://custom:1234", watchers: [{ command: "echo existing", interval: 99 }] };
+    writeFileSync(join(tmpDir, ".hookherald.json"), JSON.stringify(existing));
+
+    runCliSync(["init", "--slug", "test/no-overwrite"], { cwd: tmpDir });
+
+    const hhConfig = JSON.parse(readFileSync(join(tmpDir, ".hookherald.json"), "utf-8"));
+    assert.deepEqual(hhConfig, existing, ".hookherald.json should not be overwritten");
   });
 
   it("auto-detects slug from git remote", () => {

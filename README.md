@@ -1,17 +1,15 @@
 # HookHerald
 
-A webhook relay that pushes notifications into running [Claude Code](https://claude.ai/code) sessions. Any system that can fire an HTTP POST — CI pipelines, monitoring alerts, deployment hooks, chat bots, cron jobs — can send messages directly into your Claude conversation.
+A webhook relay and watcher system that pushes notifications into running [Claude Code](https://claude.ai/code) sessions. Any system that can fire an HTTP POST — or any script that can print to stdout — can send messages directly into your Claude conversation.
 
 ## How It Works
 
 ```
-Webhook POST ──> Router (auth + route) ──> Channel ──> Claude Code session
-                   :9000                   (MCP)       <channel> notification
+Webhooks:  HTTP POST ──> Router ──> Channel ──> Claude Code
+Watchers:  Script stdout ──> Channel ──> Router ──> Channel ──> Claude Code
 ```
 
-The **router** is a central HTTP server that receives webhooks and forwards them by `project_slug` to the right session. Each Claude Code session runs a **channel** (MCP server) that auto-registers with the router. The **CLI** (`hh`) sets everything up.
-
-Payloads are forwarded as raw JSON — send whatever you want, the agent figures it out.
+The **router** is a local HTTP server that receives webhooks and forwards them by `project_slug`. Each Claude Code session runs a **channel** (MCP server) that auto-registers with the router. **Watchers** are scripts that run on an interval — their stdout becomes notifications. The **CLI** (`hh`) sets everything up.
 
 ## Install
 
@@ -31,20 +29,104 @@ hh router --bg
 cd ~/my-project
 hh init
 
-# 3. Start Claude Code
+# 3. Start Claude Code (from the same directory — it needs .mcp.json and .hookherald.json)
 claude --dangerously-load-development-channels server:webhook-channel
 
 # 4. Send a webhook
 curl -X POST http://127.0.0.1:9000/ \
   -H "Content-Type: application/json" \
-  -H "X-Webhook-Token: dev-secret" \
   -d '{"project_slug":"my-group/my-project","status":"deployed","version":"1.2.3"}'
 ```
+
+No auth by default — localhost is trusted. See [Auth](#auth) to enable it.
+
+## Watchers
+
+Watchers poll external systems and push notifications into Claude Code. Configure them in `.hookherald.json` (created by `hh init`):
+
+```json
+{
+  "slug": "mygroup/myapp",
+  "router_url": "http://127.0.0.1:9000",
+  "watchers": [
+    { "command": "./check-pipeline.sh", "interval": 30 },
+    { "command": "kubectl get pods -n default -o json", "interval": 60 }
+  ]
+}
+```
+
+The contract is simple — HookHerald runs your command and forwards whatever it prints:
+- **stdout = send** — any non-empty stdout gets forwarded to Claude Code as a notification
+- **no stdout = skip** — nothing happens, no notification
+- **exit code doesn't matter** — only stdout counts, output is captured even on non-zero exit
+- **JSON stdout is parsed** — valid JSON stays structured, plain text stays as a string
+- **No diffing** — HookHerald doesn't compare outputs between runs. If your script prints something, it gets sent. The script decides when to fire and handles its own state/dedup.
+
+### Example: Watch Kubernetes Pods
+
+```bash
+#!/bin/bash
+# watch-pods.sh — notify when pod states change
+STATE_FILE="/tmp/hh-pods-state"
+
+CURRENT=$(kubectl get pods -n default -o json 2>/dev/null | jq -c \
+  '[.items[] | {name: .metadata.name, phase: .status.phase, ready: (.status.containerStatuses // [] | map(.ready) | all), restarts: (.status.containerStatuses // [] | map(.restartCount) | add // 0)}] | sort_by(.name)')
+
+if [ -z "$CURRENT" ] || [ "$CURRENT" = "[]" ]; then exit 0; fi
+
+LAST=$(cat "$STATE_FILE" 2>/dev/null)
+if [ "$CURRENT" = "$LAST" ]; then exit 0; fi
+
+echo "$CURRENT" > "$STATE_FILE"
+echo "$CURRENT" | jq '{
+  pods: .,
+  summary: {
+    total: (. | length),
+    running: ([.[] | select(.phase == "Running")] | length),
+    not_ready: ([.[] | select(.ready == false)] | length),
+    crashing: ([.[] | select(.restarts > 3)] | length)
+  }
+}'
+```
+
+### Example: Watch GitLab Pipeline
+
+```bash
+#!/bin/bash
+# check-pipeline.sh — notify on pipeline completion
+STATE_FILE="/tmp/hh-pipeline-last"
+
+PIPELINE=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "https://gitlab.com/api/v4/projects/mygroup%2Fmyapp/pipelines/latest")
+
+ID=$(echo "$PIPELINE" | jq -r '.id')
+STATUS=$(echo "$PIPELINE" | jq -r '.status')
+LAST=$(cat "$STATE_FILE" 2>/dev/null)
+
+case "$STATUS" in
+  failed|success|canceled)
+    [ "$ID" = "$LAST" ] && exit 0
+    echo "$ID" > "$STATE_FILE"
+    echo "$PIPELINE" | jq '{
+      pipeline_id: .id,
+      status: .status,
+      ref: .ref,
+      url: .web_url
+    }'
+    ;;
+esac
+```
+
+### Hot Reload
+
+Edit `.hookherald.json` while Claude Code is running — watchers are added/removed automatically. No restart needed. The dashboard updates within 30 seconds.
+
+See [examples/README.md](examples/README.md) for detailed walkthroughs, more scripts, writing your own watchers, and troubleshooting.
 
 ## CLI
 
 ```
-hh init   [--slug <slug>] [--router-url <url>]   Set up .mcp.json in current directory
+hh init   [--slug <slug>] [--router-url <url>]   Set up .mcp.json + .hookherald.json
 hh status [--router-url <url>]                    Show active sessions
 hh kill   <slug> [--router-url <url>]             Bounce a session
 hh router [--port <port>] [--secret <secret>]     Start the webhook router
@@ -52,57 +134,61 @@ hh router [--port <port>] [--secret <secret>]     Start the webhook router
 hh router stop                                    Stop background router
 ```
 
-`hh init` auto-detects the project slug from `git remote origin`. Merges with existing `.mcp.json` if present.
+`hh init` auto-detects the project slug from `git remote origin`. Creates `.hookherald.json` with an empty watchers array. Merges with existing `.mcp.json` if present. Won't overwrite an existing `.hookherald.json`.
 
-`hh kill` signals the channel to shut down. Claude Code will respawn it — use this to bounce a session, not permanently remove it.
+`hh kill` signals the channel to shut down. Claude Code will respawn it.
+
+## Auth
+
+Auth is opt-in. By default, no secret is needed — everything runs on localhost.
+
+```bash
+# No auth (default)
+hh router
+
+# Enable auth on webhook ingestion
+hh router --secret my-secret
+```
+
+When a secret is set, `POST /` requires `X-Webhook-Token` (or `X-Gitlab-Token`). Internal endpoints (`/register`, `/unregister`, `/api/kill`) never require auth.
+
+For external sources (GitLab CI, GitHub Actions), start the router with `--secret` and configure the same secret in the webhook settings.
 
 ## Docker
 
 The router can also run via Docker (requires `--network host` on Linux):
 
 ```bash
+docker run -d --network host shoofio/hookherald
+
+# With auth
 docker run -d --network host -e WEBHOOK_SECRET=my-secret shoofio/hookherald
 ```
 
 > For rootless Docker or Docker Desktop (Mac/Windows), use `hh router` instead.
-
-## Router API
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/` | Receive webhook (requires `X-Webhook-Token` or `X-Gitlab-Token`) |
-| `POST` | `/api/kill` | Remove a session (signals channel to shut down) |
-| `GET` | `/` | Session management dashboard |
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/sessions` | Active sessions with metrics |
-| `GET` | `/api/events` | Query events (`?slug=`, `?limit=`, `?offset=`) |
-| `GET` | `/api/events/:id` | Single event by ID |
-| `GET` | `/api/stream` | SSE live updates |
-| `GET` | `/metrics` | Prometheus format |
 
 ## Dashboard
 
 Live session management UI at `http://127.0.0.1:9000/`:
 
 - **Sessions** — status, events, errors, latency, kill button
-- **Events** — click sessions to filter, ctrl/shift for multi-select
-- **Detail** — trace waterfall, raw payload
-- **Live** — SSE-powered, no refresh
+- **Watchers** — shown per session with command and interval, click to filter events by source
+- **Events** — click sessions to filter, ctrl/shift for multi-select, expand for trace waterfall and payload
+- **Live** — SSE-powered, no refresh needed
 
-## GitLab CI
+## Router API
 
-Add a webhook in project settings, or use a CI step:
-
-```yaml
-notify:
-  stage: .post
-  script:
-    - |
-      curl -s -X POST http://$ROUTER_HOST:9000/ \
-        -H "Content-Type: application/json" \
-        -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-        -d "{\"project_slug\":\"$CI_PROJECT_PATH\",\"status\":\"$CI_PIPELINE_STATUS\",\"branch\":\"$CI_COMMIT_BRANCH\",\"sha\":\"$CI_COMMIT_SHA\"}"
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/` | Receive webhook (auth required only if `WEBHOOK_SECRET` is set) |
+| `POST` | `/api/kill` | Remove a session (signals channel to shut down) |
+| `GET` | `/` | Dashboard |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/sessions` | Active sessions with metrics and watchers |
+| `GET` | `/api/events` | Query events (`?slug=`, `?limit=`, `?offset=`) |
+| `GET` | `/api/events/:id` | Single event by ID |
+| `GET` | `/api/stream` | SSE live updates |
+| `GET` | `/metrics` | Prometheus format |
 
 ## Environment Variables
 
@@ -110,11 +196,12 @@ notify:
 |----------|---------|-------------|
 | `ROUTER_PORT` | `9000` | Router listen port |
 | `ROUTER_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for Docker) |
-| `WEBHOOK_SECRET` | `dev-secret` | Auth secret |
+| `WEBHOOK_SECRET` | *(none)* | Auth secret (opt-in) |
 | `PROJECT_SLUG` | `unknown/project` | Channel's project ID |
 | `ROUTER_URL` | `http://127.0.0.1:9000` | Router address |
 | `LOG_LEVEL` | `info` | debug/info/warn/error |
 | `HH_HEARTBEAT_MS` | `30000` | Channel heartbeat interval |
+| `HH_CONFIG_PATH` | *(none)* | Path to `.hookherald.json` (set by `hh init`) |
 
 ## License
 

@@ -1,16 +1,26 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "node:http";
-import { createLogger } from "./observability.js";
+import { readFileSync, watch as fsWatch, type FSWatcher } from "node:fs";
+import { execSync } from "node:child_process";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createLogger, type WatcherConfig } from "./observability.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"));
+const VERSION = pkg.version;
 
 const PROJECT_SLUG = process.env.PROJECT_SLUG || "unknown/project";
 const ROUTER_URL = process.env.ROUTER_URL || "http://127.0.0.1:9000";
+const CONFIG_PATH = process.env.HH_CONFIG_PATH || "";
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
 const log = createLogger(`channel:${PROJECT_SLUG}`, true); // stderr for MCP
 
 // --- MCP Server setup ---
 const mcp = new Server(
-  { name: "webhook-channel", version: "0.2.0" },
+  { name: "webhook-channel", version: VERSION },
   {
     capabilities: {
       experimental: { "claude/channel": {} },
@@ -95,7 +105,11 @@ async function register(): Promise<boolean> {
     const resp = await fetch(`${ROUTER_URL}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_slug: PROJECT_SLUG, port: assignedPort }),
+      body: JSON.stringify({
+        project_slug: PROJECT_SLUG,
+        port: assignedPort,
+        watchers: currentWatcherConfigs,
+      }),
     });
     if (resp.ok) {
       if (!registered) log.info("registered with router", { router: ROUTER_URL });
@@ -117,20 +131,148 @@ function startHeartbeat() {
   heartbeatTimer.unref();
 }
 
+// --- Watcher system ---
+
+let currentWatcherConfigs: WatcherConfig[] = [];
+const watcherIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
+let configWatcher: FSWatcher | null = null;
+
+function readConfig(): { slug: string; router_url: string; watchers: WatcherConfig[] } | null {
+  if (!CONFIG_PATH) return null;
+  try {
+    return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function executeCommand(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: "utf-8", shell: true, stdio: ["pipe", "pipe", "pipe"], timeout: 60000 }).trim();
+  } catch (err: any) {
+    return (err.stdout || "").trim();
+  }
+}
+
+async function runWatcher(watcher: WatcherConfig) {
+  const output = executeCommand(watcher.command);
+  if (!output) return;
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    parsed = output;
+  }
+
+  const envelope = {
+    project_slug: PROJECT_SLUG,
+    source: watcher.command,
+    output: parsed,
+  };
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (WEBHOOK_SECRET) headers["X-Webhook-Token"] = WEBHOOK_SECRET;
+
+  try {
+    await fetch(`${ROUTER_URL}/`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(envelope),
+    });
+    log.debug("watcher sent", { command: watcher.command });
+  } catch (err: any) {
+    log.warn("watcher POST failed", { command: watcher.command, error: err.message });
+  }
+}
+
+function watcherKey(w: WatcherConfig): string {
+  return `${w.command}::${w.interval}`;
+}
+
+function startWatchers(watchers: WatcherConfig[]) {
+  // Stop removed/changed watchers
+  const newKeys = new Set(watchers.map(watcherKey));
+  for (const [key, timer] of watcherIntervals) {
+    if (!newKeys.has(key)) {
+      clearInterval(timer);
+      watcherIntervals.delete(key);
+      log.info("watcher stopped", { key });
+    }
+  }
+
+  // Start new watchers
+  for (const w of watchers) {
+    const key = watcherKey(w);
+    if (watcherIntervals.has(key)) continue;
+
+    // Run immediately, then on interval
+    runWatcher(w);
+    const timer = setInterval(() => runWatcher(w), w.interval * 1000);
+    timer.unref();
+    watcherIntervals.set(key, timer);
+    log.info("watcher started", { command: w.command, interval: w.interval });
+  }
+
+  currentWatcherConfigs = watchers;
+}
+
+function loadAndStartWatchers() {
+  const config = readConfig();
+  const watchers = config?.watchers || [];
+  startWatchers(watchers);
+}
+
+function startConfigWatcher() {
+  if (!CONFIG_PATH) return;
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function watch() {
+    if (configWatcher) { try { configWatcher.close(); } catch {} }
+    try {
+      configWatcher = fsWatch(CONFIG_PATH, () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          log.info("config changed, reloading watchers");
+          loadAndStartWatchers();
+          // Re-establish watcher (inode may have changed)
+          watch();
+        }, 200);
+      });
+      configWatcher.unref();
+    } catch {
+      log.debug("could not watch config file, retrying in 5s", { path: CONFIG_PATH });
+      setTimeout(watch, 5000);
+    }
+  }
+
+  watch();
+}
+
 // Bind to port 0 for auto-assignment
 httpServer.listen(0, "127.0.0.1", async () => {
   const addr = httpServer.address();
   assignedPort = typeof addr === "object" && addr ? addr.port : 0;
   log.info("HTTP server listening", { host: "127.0.0.1", port: assignedPort });
 
+  loadAndStartWatchers();
+  startConfigWatcher();
   await register();
   startHeartbeat();
 });
 
 // Graceful shutdown: unregister from router
+let shutdownInProgress = false;
+
 async function shutdown() {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
   log.info("shutting down");
   if (heartbeatTimer) clearInterval(heartbeatTimer);
+  for (const timer of watcherIntervals.values()) clearInterval(timer);
+  watcherIntervals.clear();
+  if (configWatcher) { configWatcher.close(); configWatcher = null; }
   try {
     await fetch(`${ROUTER_URL}/unregister`, {
       method: "POST",

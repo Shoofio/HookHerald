@@ -284,6 +284,28 @@
     border-radius: 4px;
   }
   .filter-bar label { color: var(--text-dim); }
+
+  /* Watcher rows */
+  .watcher-row td { padding: 0 12px 8px !important; border-bottom: 1px solid var(--border); }
+  .watcher-row.selected td { background: #1a2636; }
+  .watchers-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .watcher-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: #1a2a3a;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .watcher-tag { cursor: pointer; }
+  .watcher-tag:hover { border-color: var(--blue); }
+  .watcher-tag.active { background: #1a3a5f; border-color: var(--blue); color: var(--text); }
+  .watcher-icon { font-size: 10px; }
+  .watcher-interval { color: var(--blue); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -335,6 +357,7 @@ const state = {
   expandedEventId: null,
   selectedSlugs: new Set(),
   filterType: '',
+  filterSource: '',
 };
 
 // --- SSE ---
@@ -431,6 +454,14 @@ function renderSessions() {
       <td class="last-event-cell" data-ts="${s.lastEventAt || ''}">${s.lastEventAt ? timeAgo(s.lastEventAt) : 'never'}</td>
       <td><button class="btn-kill" onclick="event.stopPropagation(); killSession('${esc(s.slug)}')">kill</button></td>
     </tr>`;
+    if (s.watchers && s.watchers.length > 0) {
+      html += `<tr class="watcher-row${sel}"><td colspan="8"><div class="watchers-list">`;
+      for (const w of s.watchers) {
+        const active = state.filterSource === w.command ? ' active' : '';
+        html += `<span class="watcher-tag${active}" title="${esc(w.command)}" onclick="event.stopPropagation(); filterBySource('${esc(w.command)}')"><span class="watcher-icon">&#9201;</span>${esc(w.command.length > 40 ? w.command.slice(0, 37) + '...' : w.command)} <span class="watcher-interval">${w.interval}s</span></span>`;
+      }
+      html += '</div></td></tr>';
+    }
   }
 
   html += '</tbody></table>';
@@ -472,22 +503,28 @@ function selectSession(slug, ev) {
   updateFilterHint();
 }
 
+function filterBySource(cmd) {
+  state.filterSource = state.filterSource === cmd ? '' : cmd;
+  renderSessions();
+  renderEvents();
+  updateFilterHint();
+}
+
 function updateFilterHint() {
   const el = document.getElementById('filterHint');
+  const parts = [];
   const n = state.selectedSlugs.size;
-  if (n === 0) {
-    el.textContent = 'Showing all sessions';
-  } else if (n === 1) {
-    el.textContent = 'Filtered: ' + [...state.selectedSlugs][0];
-  } else {
-    el.textContent = 'Filtered: ' + n + ' sessions';
-  }
+  if (n === 1) parts.push([...state.selectedSlugs][0]);
+  else if (n > 1) parts.push(n + ' sessions');
+  if (state.filterSource) parts.push('source: ' + state.filterSource);
+  el.textContent = parts.length ? 'Filtered: ' + parts.join(', ') : 'Showing all sessions';
 }
 
 function getFilteredEvents() {
   return state.events.filter(ev => {
     if (state.selectedSlugs.size > 0 && !state.selectedSlugs.has(ev.slug)) return false;
     if (state.filterType && ev.type !== state.filterType) return false;
+    if (state.filterSource && (!ev.payload || ev.payload.source !== state.filterSource)) return false;
     return true;
   });
 }

@@ -1,2 +1,10 @@
 #!/bin/sh
-exec npx tsx "$(dirname "$(readlink -f "$0")")/../src/cli.ts" "$@"
+# Resolve symlinks to find the actual package directory
+SELF="$0"
+while [ -L "$SELF" ]; do
+  DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) ;; *) SELF="$DIR/$SELF" ;; esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+exec npx tsx "$SCRIPT_DIR/../src/cli.ts" "$@"

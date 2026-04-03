@@ -407,7 +407,7 @@ describe("Router: /api/health", () => {
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.equal(data.status, "ok");
-    assert.equal(data.version, "0.2.0");
+    assert.ok(typeof data.version === "string");
     assert.ok(typeof data.uptimeSeconds === "number");
     assert.ok(typeof data.routesActive === "number");
   });
@@ -536,6 +536,52 @@ describe("Router: GET /", () => {
     assert.ok(res.headers.get("content-type")?.includes("text/html"));
     const text = await res.text();
     assert.ok(text.includes("HookHerald"));
+  });
+});
+
+// --- Watcher registration ---
+
+describe("Router: watcher registration", () => {
+  it("stores watchers from registration and returns them in sessions", async () => {
+    const watchers = [
+      { command: "./check-pipeline.sh", interval: 30 },
+      { command: "kubectl get pods -o json", interval: 60 },
+    ];
+    await post("/register", { project_slug: "test/with-watchers", port: 55500, watchers });
+
+    const res = await fetch(`${BASE}/api/sessions`);
+    const sessions: any[] = await res.json();
+    const sess = sessions.find((s: any) => s.slug === "test/with-watchers");
+    assert.ok(sess);
+    assert.deepEqual(sess.watchers, watchers);
+
+    await post("/unregister", { project_slug: "test/with-watchers" });
+  });
+
+  it("defaults to empty watchers when not provided", async () => {
+    await post("/register", { project_slug: "test/no-watchers", port: 55501 });
+
+    const res = await fetch(`${BASE}/api/sessions`);
+    const sessions: any[] = await res.json();
+    const sess = sessions.find((s: any) => s.slug === "test/no-watchers");
+    assert.ok(sess);
+    assert.deepEqual(sess.watchers, []);
+
+    await post("/unregister", { project_slug: "test/no-watchers" });
+  });
+
+  it("updates watchers on heartbeat", async () => {
+    await post("/register", { project_slug: "test/watcher-update", port: 55502, watchers: [{ command: "echo a", interval: 10 }] });
+
+    // Heartbeat with updated watchers (same port = heartbeat)
+    await post("/register", { project_slug: "test/watcher-update", port: 55502, watchers: [{ command: "echo b", interval: 20 }] });
+
+    const res = await fetch(`${BASE}/api/sessions`);
+    const sessions: any[] = await res.json();
+    const sess = sessions.find((s: any) => s.slug === "test/watcher-update");
+    assert.deepEqual(sess.watchers, [{ command: "echo b", interval: 20 }]);
+
+    await post("/unregister", { project_slug: "test/watcher-update" });
   });
 });
 

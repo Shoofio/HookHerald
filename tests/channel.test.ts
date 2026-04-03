@@ -2,6 +2,9 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
+import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // We need a fake router for the channel to register with
 let fakeRouter: Server;
@@ -410,6 +413,213 @@ describe("Channel: port assignment", () => {
     } finally {
       try { process.kill(-ch2.pid!, "SIGTERM"); } catch {}
       fakeRouter2.close();
+    }
+  });
+});
+
+// --- Watcher tests ---
+
+describe("Channel: watchers", () => {
+  it("sends watcher output to router as webhook", async () => {
+    const regs: any[] = [];
+    const webhooks: any[] = [];
+
+    const fakeRouterW = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/register") regs.push(body);
+      else if (req.method === "POST" && req.url === "/") webhooks.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouterW.listen(0, "127.0.0.1", resolve));
+    const routerPortW = (fakeRouterW.address() as any).port;
+
+    const tmpDir = mkdtempSync(join(tmpdir(), "hh-watcher-"));
+    const configPath = join(tmpDir, ".hookherald.json");
+    writeFileSync(configPath, JSON.stringify({
+      slug: "test/watcher",
+      router_url: `http://127.0.0.1:${routerPortW}`,
+      watchers: [{ command: "echo watcher-output", interval: 60 }],
+    }));
+
+    const chW = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/watcher",
+        ROUTER_URL: `http://127.0.0.1:${routerPortW}`,
+        HH_CONFIG_PATH: configPath,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    try {
+      // Wait for registration + watcher to fire (runs immediately)
+      const start = Date.now();
+      while (Date.now() - start < 10000 && webhooks.length === 0) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      assert.ok(webhooks.length >= 1, "Watcher should POST output to router");
+      assert.equal(webhooks[0].project_slug, "test/watcher");
+      assert.equal(webhooks[0].source, "echo watcher-output");
+      assert.equal(webhooks[0].output, "watcher-output");
+    } finally {
+      try { process.kill(-chW.pid!, "SIGTERM"); } catch {}
+      fakeRouterW.close();
+      try { unlinkSync(configPath); } catch {}
+    }
+  });
+
+  it("does not POST when watcher produces no output", async () => {
+    const webhooks: any[] = [];
+
+    const fakeRouterW2 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.method === "POST" && req.url === "/") webhooks.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouterW2.listen(0, "127.0.0.1", resolve));
+    const routerPortW2 = (fakeRouterW2.address() as any).port;
+
+    const tmpDir = mkdtempSync(join(tmpdir(), "hh-watcher-"));
+    const configPath = join(tmpDir, ".hookherald.json");
+    writeFileSync(configPath, JSON.stringify({
+      slug: "test/silent-watcher",
+      router_url: `http://127.0.0.1:${routerPortW2}`,
+      watchers: [{ command: "true", interval: 60 }],
+    }));
+
+    const chW2 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/silent-watcher",
+        ROUTER_URL: `http://127.0.0.1:${routerPortW2}`,
+        HH_CONFIG_PATH: configPath,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    try {
+      // Wait enough time for the watcher to have fired
+      await new Promise((r) => setTimeout(r, 3000));
+
+      assert.equal(webhooks.length, 0, "Watcher with no output should not POST");
+    } finally {
+      try { process.kill(-chW2.pid!, "SIGTERM"); } catch {}
+      fakeRouterW2.close();
+      try { unlinkSync(configPath); } catch {}
+    }
+  });
+
+  it("parses JSON output into object", async () => {
+    const webhooks: any[] = [];
+
+    const fakeRouterW3 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.method === "POST" && req.url === "/") webhooks.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouterW3.listen(0, "127.0.0.1", resolve));
+    const routerPortW3 = (fakeRouterW3.address() as any).port;
+
+    const tmpDir = mkdtempSync(join(tmpdir(), "hh-watcher-"));
+    const configPath = join(tmpDir, ".hookherald.json");
+    writeFileSync(configPath, JSON.stringify({
+      slug: "test/json-watcher",
+      router_url: `http://127.0.0.1:${routerPortW3}`,
+      watchers: [{ command: `echo '{"status":"failed","id":42}'`, interval: 60 }],
+    }));
+
+    const chW3 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/json-watcher",
+        ROUTER_URL: `http://127.0.0.1:${routerPortW3}`,
+        HH_CONFIG_PATH: configPath,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    try {
+      const start = Date.now();
+      while (Date.now() - start < 10000 && webhooks.length === 0) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      assert.ok(webhooks.length >= 1);
+      assert.deepEqual(webhooks[0].output, { status: "failed", id: 42 });
+    } finally {
+      try { process.kill(-chW3.pid!, "SIGTERM"); } catch {}
+      fakeRouterW3.close();
+      try { unlinkSync(configPath); } catch {}
+    }
+  });
+
+  it("includes watchers in registration payload", async () => {
+    const regs: any[] = [];
+
+    const fakeRouterW4 = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/register") regs.push(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => fakeRouterW4.listen(0, "127.0.0.1", resolve));
+    const routerPortW4 = (fakeRouterW4.address() as any).port;
+
+    const tmpDir = mkdtempSync(join(tmpdir(), "hh-watcher-"));
+    const configPath = join(tmpDir, ".hookherald.json");
+    const watchersList = [{ command: "echo reg-test", interval: 15 }];
+    writeFileSync(configPath, JSON.stringify({
+      slug: "test/reg-watchers",
+      router_url: `http://127.0.0.1:${routerPortW4}`,
+      watchers: watchersList,
+    }));
+
+    const chW4 = spawn("npx", ["tsx", "src/webhook-channel.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PROJECT_SLUG: "test/reg-watchers",
+        ROUTER_URL: `http://127.0.0.1:${routerPortW4}`,
+        HH_CONFIG_PATH: configPath,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+
+    try {
+      const start = Date.now();
+      while (Date.now() - start < 10000 && regs.length === 0) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      assert.ok(regs.length >= 1);
+      assert.deepEqual(regs[0].watchers, watchersList);
+    } finally {
+      try { process.kill(-chW4.pid!, "SIGTERM"); } catch {}
+      fakeRouterW4.close();
+      try { unlinkSync(configPath); } catch {}
     }
   });
 });

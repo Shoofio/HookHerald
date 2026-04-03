@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { timingSafeEqual } from "node:crypto";
 import {
   createLogger,
   EventStore,
@@ -15,9 +16,17 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"));
+const VERSION = pkg.version;
+
 const PORT = parseInt(process.env.ROUTER_PORT || "9000", 10);
 const HOST = process.env.ROUTER_HOST || "127.0.0.1";
-const SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
+const SECRET = process.env.WEBHOOK_SECRET || "";
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 const log = createLogger("router");
 const events = new EventStore();
@@ -36,9 +45,16 @@ try {
 
 // --- Request body helper ---
 
+const MAX_BODY = 10 * 1024 * 1024; // 10MB
+
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY) throw new Error("body too large");
+    chunks.push(chunk as Buffer);
+  }
   return Buffer.concat(chunks).toString();
 }
 
@@ -51,20 +67,27 @@ function getRoutesSnapshot() {
 // --- Handlers ---
 
 async function handleRegister(req: IncomingMessage, res: ServerResponse) {
-  const body = JSON.parse(await readBody(req));
-  const { project_slug, port } = body;
+  let body: any;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid JSON" }));
+    return;
+  }
+  const { project_slug, port, watchers } = body;
   if (!project_slug || !port) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "missing project_slug or port" }));
     return;
   }
 
-  // Heartbeat: if same slug already registered, treat as keepalive
+  // Heartbeat: if same slug and same port, treat as keepalive
   const existing = routes.get(project_slug);
-  if (existing) {
-    if (existing.port !== port) {
-      existing.port = port;
-      log.info("route updated", { slug: project_slug, port });
+  if (existing && existing.port === port) {
+    // Update watchers on heartbeat (supports hot reload)
+    if (watchers && JSON.stringify(watchers) !== JSON.stringify(existing.watchers)) {
+      existing.watchers = watchers;
       broadcast("session", { sessions: getSessionsData() });
     }
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -79,6 +102,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
     eventCount: 0,
     errorCount: 0,
     status: "unknown",
+    watchers: watchers || [],
   };
   routes.set(project_slug, info);
   metrics.registrations++;
@@ -103,7 +127,14 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
 }
 
 async function handleUnregister(req: IncomingMessage, res: ServerResponse) {
-  const body = JSON.parse(await readBody(req));
+  let body: any;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid JSON" }));
+    return;
+  }
   const { project_slug } = body;
   if (!project_slug) {
     res.writeHead(400, { "Content-Type": "application/json" });
@@ -141,32 +172,34 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
   const trace = createTrace();
   const traceId = newEventId();
 
-  // Auth
+  // Auth (opt-in: only check if SECRET is configured)
   const authSpan = trace.span("auth_validate");
-  const token = req.headers["x-webhook-token"] || req.headers["x-gitlab-token"];
-  if (token !== SECRET) {
-    trace.end(authSpan);
-    log.warn("rejected: invalid token", { traceId });
-    metrics.recordRequest(401);
-    metrics.recordWebhook("unauthorized");
+  if (SECRET) {
+    const token = req.headers["x-webhook-token"] || req.headers["x-gitlab-token"];
+    if (!safeEqual(String(token ?? ""), SECRET)) {
+      trace.end(authSpan);
+      log.warn("rejected: invalid token", { traceId });
+      metrics.recordRequest(401);
+      metrics.recordWebhook("unauthorized");
 
-    const ev: RouterEvent = {
-      id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug: "unknown",
-      routingDecision: "unauthorized",
-      durationMs: trace.elapsed(),
-      responseStatus: 401,
-      traceSpans: trace.spans,
-      error: "invalid token",
-    };
-    events.push(ev);
-    broadcast("webhook", ev);
+      const ev: RouterEvent = {
+        id: traceId,
+        timestamp: new Date().toISOString(),
+        type: "webhook",
+        slug: "unknown",
+        routingDecision: "unauthorized",
+        durationMs: trace.elapsed(),
+        responseStatus: 401,
+        traceSpans: trace.spans,
+        error: "invalid token",
+      };
+      events.push(ev);
+      broadcast("webhook", ev);
 
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "unauthorized" }));
-    return;
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
   }
   trace.end(authSpan);
 
@@ -294,6 +327,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     };
     events.push(ev);
     broadcast("webhook", ev);
+    broadcast("session", { sessions: getSessionsData() });
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, forwarded_to: routeInfo.port }));
@@ -323,6 +357,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     };
     events.push(ev);
     broadcast("webhook", ev);
+    broadcast("session", { sessions: getSessionsData() });
 
     res.writeHead(502, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "downstream unreachable" }));
@@ -404,14 +439,21 @@ function handleApiHealth(_req: IncomingMessage, res: ServerResponse) {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({
     status: "ok",
-    version: "0.2.0",
+    version: VERSION,
     uptimeSeconds: Math.floor((Date.now() - metrics.startTime) / 1000),
     routesActive: routes.size,
   }));
 }
 
 async function handleApiKill(req: IncomingMessage, res: ServerResponse) {
-  const body = JSON.parse(await readBody(req));
+  let body: any;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid JSON" }));
+    return;
+  }
   const { project_slug } = body;
   if (!project_slug) {
     res.writeHead(400, { "Content-Type": "application/json" });
@@ -468,6 +510,7 @@ function getSessionsData() {
       avgLatencyMs: rm?.avgLatencyMs ?? 0,
       successCount: rm?.success ?? 0,
       failedCount: rm?.failed ?? 0,
+      watchers: info.watchers,
     };
   });
 }
@@ -530,6 +573,11 @@ const server = createServer(async (req, res) => {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not found" }));
   } catch (err: any) {
+    if (err.message === "body too large") {
+      res.writeHead(413, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "payload too large" }));
+      return;
+    }
     log.error("unhandled error", { error: err.message, path: url.pathname });
     metrics.recordRequest(500);
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -541,7 +589,8 @@ server.listen(PORT, HOST, () => {
   const addr = server.address();
   const actualPort = typeof addr === "object" && addr ? addr.port : PORT;
   log.info("listening", { host: HOST, port: actualPort });
-  log.info("secret", { preview: SECRET.slice(0, 4) + "..." });
+  if (SECRET) log.info("auth enabled", { preview: SECRET.slice(0, 4) + "..." });
+  else log.info("auth disabled (no WEBHOOK_SECRET set)");
   // Machine-readable line for process spawners to discover the port
   process.stderr.write(`HOOKHERALD_PORT=${actualPort}\n`);
 });

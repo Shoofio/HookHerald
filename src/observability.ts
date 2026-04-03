@@ -30,6 +30,11 @@ export interface RouterEvent {
   error?: string;
 }
 
+export interface WatcherConfig {
+  command: string;
+  interval: number;
+}
+
 export interface RouteInfo {
   port: number;
   registeredAt: string;
@@ -37,6 +42,7 @@ export interface RouteInfo {
   eventCount: number;
   errorCount: number;
   status: "up" | "down" | "unknown";
+  watchers: WatcherConfig[];
 }
 
 interface RouteMetrics {

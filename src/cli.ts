@@ -16,7 +16,6 @@ const PID_FILE = resolve(PID_DIR, "router.pid");
 
 const DEFAULT_ROUTER_URL = "http://127.0.0.1:9000";
 const DEFAULT_PORT = "9000";
-const DEFAULT_SECRET = "dev-secret";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -45,8 +44,9 @@ function detectSlug(): string {
     }).trim();
 
     // SSH: git@gitlab.com:group/project.git
+    // Skip if it looks like a URL scheme (e.g. https:)
     const lastColon = remote.lastIndexOf(":");
-    if (lastColon !== -1 && !remote.slice(0, lastColon).includes("/")) {
+    if (lastColon !== -1 && !remote.includes("://")) {
       const slug = remote.slice(lastColon + 1).replace(/\.git$/, "");
       if (slug.includes("/")) return slug;
     }
@@ -81,17 +81,33 @@ async function cmdInit() {
 
   if (!config.mcpServers) config.mcpServers = {};
 
+  const hhConfigPath = resolve(process.cwd(), ".hookherald.json");
+
   config.mcpServers["webhook-channel"] = {
     command: "node",
     args: ["--import", resolve(TSX_PATH, "dist", "esm", "index.mjs"), CHANNEL_PATH],
     env: {
       PROJECT_SLUG: slug,
       ROUTER_URL: routerUrl,
+      HH_CONFIG_PATH: hhConfigPath,
     },
   };
 
   writeFileSync(mcpPath, JSON.stringify(config, null, 2) + "\n");
-  console.log(`Initialized HookHerald for ${slug} in .mcp.json`);
+
+  // Write .hookherald.json if it doesn't exist
+  if (!existsSync(hhConfigPath)) {
+    const hhConfig = {
+      slug,
+      router_url: routerUrl,
+      watchers: [],
+    };
+    writeFileSync(hhConfigPath, JSON.stringify(hhConfig, null, 2) + "\n");
+    console.log(`Initialized HookHerald for ${slug}`);
+    console.log(`  Config:  ${hhConfigPath}`);
+  } else {
+    console.log(`Initialized HookHerald for ${slug} (config already exists)`);
+  }
   console.log(`  Channel: ${CHANNEL_PATH}`);
   console.log(`  Router:  ${routerUrl}`);
 }
@@ -184,7 +200,7 @@ function cmdRouter() {
   }
 
   const port = getFlag("port") || process.env.ROUTER_PORT || DEFAULT_PORT;
-  const secret = getFlag("secret") || process.env.WEBHOOK_SECRET || DEFAULT_SECRET;
+  const secret = getFlag("secret") || process.env.WEBHOOK_SECRET || "";
   const bg = hasFlag("bg");
 
   const child = spawn("node", ["--import", resolve(TSX_PATH, "dist", "esm", "index.mjs"), ROUTER_PATH], {
