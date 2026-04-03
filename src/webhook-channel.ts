@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "node:http";
 import { readFileSync, watch as fsWatch, type FSWatcher } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger, type WatcherConfig } from "./observability.js";
@@ -146,16 +146,16 @@ function readConfig(): { slug: string; router_url: string; watchers: WatcherConf
   }
 }
 
-function executeCommand(cmd: string): string {
-  try {
-    return execSync(cmd, { encoding: "utf-8", shell: true, stdio: ["pipe", "pipe", "pipe"], timeout: 60000 }).trim();
-  } catch (err: any) {
-    return (err.stdout || "").trim();
-  }
+function executeCommand(cmd: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile("sh", ["-c", cmd], { encoding: "utf-8", timeout: 60000 }, (err, stdout) => {
+      resolve((stdout || "").trim());
+    });
+  });
 }
 
 async function runWatcher(watcher: WatcherConfig) {
-  const output = executeCommand(watcher.command);
+  const output = await executeCommand(watcher.command);
   if (!output) return;
 
   let parsed: any;
@@ -206,8 +206,8 @@ function startWatchers(watchers: WatcherConfig[]) {
     const key = watcherKey(w);
     if (watcherIntervals.has(key)) continue;
 
-    // Run immediately, then on interval
-    runWatcher(w);
+    // Run immediately (if registered), then on interval
+    if (registered) runWatcher(w);
     const timer = setInterval(() => runWatcher(w), w.interval * 1000);
     timer.unref();
     watcherIntervals.set(key, timer);
@@ -259,6 +259,8 @@ httpServer.listen(0, "127.0.0.1", async () => {
   loadAndStartWatchers();
   startConfigWatcher();
   await register();
+  // Run watchers that were deferred during startup (before registration)
+  for (const w of currentWatcherConfigs) runWatcher(w);
   startHeartbeat();
 });
 
