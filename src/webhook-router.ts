@@ -24,8 +24,14 @@ const HOST = process.env.ROUTER_HOST || "127.0.0.1";
 const SECRET = process.env.WEBHOOK_SECRET || "";
 
 function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Compare against self to burn constant time, then return false
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
 }
 
 const log = createLogger("router");
@@ -85,6 +91,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
   // Heartbeat: if same slug and same port, treat as keepalive
   const existing = routes.get(project_slug);
   if (existing && existing.port === port) {
+    existing.lastHeartbeatAt = Date.now();
     // Update watchers on heartbeat (supports hot reload)
     if (watchers && JSON.stringify(watchers) !== JSON.stringify(existing.watchers)) {
       existing.watchers = watchers;
@@ -98,6 +105,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
   const info: RouteInfo = {
     port,
     registeredAt: new Date().toISOString(),
+    lastHeartbeatAt: Date.now(),
     lastEventAt: null,
     eventCount: 0,
     errorCount: 0,
@@ -434,6 +442,34 @@ const statsInterval = setInterval(() => {
   }
 }, 5000);
 statsInterval.unref();
+
+// Stale route cleanup: remove routes that missed 3 heartbeat intervals
+const HEARTBEAT_MS = parseInt(process.env.HH_HEARTBEAT_MS || "30000", 10);
+const STALE_THRESHOLD_MS = HEARTBEAT_MS * 3;
+
+const staleInterval = setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const [slug, info] of routes) {
+    if (now - info.lastHeartbeatAt > STALE_THRESHOLD_MS) {
+      routes.delete(slug);
+      metrics.unregistrations++;
+      log.warn("reaped stale route", { slug, lastHeartbeatAgoMs: now - info.lastHeartbeatAt });
+      events.push({
+        id: newEventId(),
+        timestamp: new Date().toISOString(),
+        type: "unregister",
+        slug,
+        routingDecision: null,
+        durationMs: 0,
+        responseStatus: 200,
+      });
+      changed = true;
+    }
+  }
+  if (changed) broadcast("session", { sessions: getSessionsData() });
+}, STALE_THRESHOLD_MS);
+staleInterval.unref();
 
 function handleApiHealth(_req: IncomingMessage, res: ServerResponse) {
   res.writeHead(200, { "Content-Type": "application/json" });

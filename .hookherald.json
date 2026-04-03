@@ -1,0 +1,7 @@
+{
+  "slug": "Shoofio/HookHerald",
+  "router_url": "http://127.0.0.1:9000",
+  "watchers": [
+    { "command": "./scripts/check-ci.sh", "interval": 15 }
+  ]
+}

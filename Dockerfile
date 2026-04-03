@@ -10,4 +10,4 @@ COPY src/ src/
 ENV ROUTER_HOST=0.0.0.0
 EXPOSE 9000
 
-CMD ["npx", "tsx", "src/webhook-router.ts"]
+CMD ["node", "--import", "./node_modules/tsx/dist/esm/index.mjs", "src/webhook-router.ts"]

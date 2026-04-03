@@ -38,6 +38,7 @@ export interface WatcherConfig {
 export interface RouteInfo {
   port: number;
   registeredAt: string;
+  lastHeartbeatAt: number;
   lastEventAt: string | null;
   eventCount: number;
   errorCount: number;
