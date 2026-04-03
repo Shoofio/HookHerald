@@ -217,10 +217,12 @@ function startWatchers(watchers: WatcherConfig[]) {
   currentWatcherConfigs = watchers;
 }
 
-function loadAndStartWatchers() {
+async function loadAndStartWatchers() {
   const config = readConfig();
   const watchers = config?.watchers || [];
   startWatchers(watchers);
+  // Re-register so the router sees the updated watcher list
+  if (registered) await register();
 }
 
 function startConfigWatcher() {
