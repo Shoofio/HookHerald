@@ -155,7 +155,7 @@ On merge, the `Auto Release` workflow (`.github/workflows/auto-release.yml`) bum
 - Builds and pushes Docker image to DockerHub (`shoofio/hookherald:X.Y.Z` + `latest`)
 - Creates a GitHub release with auto-generated notes
 
-**CI** (`.github/workflows/ci.yml`) runs on every push and PR to `master` with 3 parallel jobs: unit/integration tests, e2e tests, and Docker build validation.
+**CI** (`.github/workflows/ci.yml`) runs on PRs to `master` with 3 parallel jobs: unit/integration tests, e2e tests, and Docker build validation.
 
 **PRs and commits:** Do not add "Generated with Claude Code" or `Co-Authored-By` lines to commits or PR descriptions.
 
