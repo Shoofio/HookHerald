@@ -284,3 +284,22 @@ export function truncatePayload(payload: any): any {
 export function newEventId(): string {
   return randomUUID();
 }
+
+// --- Event factory ---
+
+export function createRouterEvent(
+  type: RouterEvent["type"],
+  slug: string,
+  overrides: Partial<RouterEvent> = {},
+): RouterEvent {
+  return {
+    id: newEventId(),
+    timestamp: new Date().toISOString(),
+    type,
+    slug,
+    routingDecision: null,
+    durationMs: 0,
+    responseStatus: 200,
+    ...overrides,
+  };
+}
