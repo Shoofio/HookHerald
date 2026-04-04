@@ -1,15 +1,15 @@
 # HookHerald
 
-A webhook relay and watcher system that pushes notifications into running [Claude Code](https://claude.ai/code) sessions. Any system that can fire an HTTP POST — or any script that can print to stdout — can send messages directly into your Claude conversation.
+A watcher and webhook relay that pushes notifications into running [Claude Code](https://claude.ai/code) sessions. Any script that can print to stdout — or any system that can fire an HTTP POST — can send messages directly into your Claude conversation.
 
 ## How It Works
 
 ```
-Webhooks:  HTTP POST ──> Router ──> Channel ──> Claude Code
 Watchers:  Script stdout ──> Channel ──> Router ──> Channel ──> Claude Code
+Webhooks:  HTTP POST ──> Router ──> Channel ──> Claude Code
 ```
 
-The **router** is a local HTTP server that receives webhooks and forwards them by `project_slug`. Each Claude Code session runs a **channel** (MCP server) that auto-registers with the router. **Watchers** are scripts that run on an interval — their stdout becomes notifications. The **CLI** (`hh`) sets everything up.
+The **CLI** (`hh`) sets everything up. Each Claude Code session runs a **channel** (MCP server) that auto-registers with a local **router**. **Watchers** are scripts that run on an interval — their stdout becomes notifications. The router also accepts **webhooks** from external systems and forwards them by `project_slug`.
 
 ## Install
 
@@ -31,18 +31,9 @@ hh init
 
 # 3. Start Claude Code (from the same directory — it needs .mcp.json and .hookherald.json)
 claude --dangerously-load-development-channels server:webhook-channel
-
-# 4. Send a webhook
-curl -X POST http://127.0.0.1:9000/ \
-  -H "Content-Type: application/json" \
-  -d '{"project_slug":"my-group/my-project","status":"deployed","version":"1.2.3"}'
 ```
 
-No auth by default — localhost is trusted. See [Auth](#auth) to enable it.
-
-## Watchers
-
-Watchers poll external systems and push notifications into Claude Code. Configure them in `.hookherald.json` (created by `hh init`):
+`hh init` creates `.hookherald.json` with an empty watchers array and `.mcp.json` for the channel. Edit `.hookherald.json` to add watchers:
 
 ```json
 {
@@ -55,12 +46,34 @@ Watchers poll external systems and push notifications into Claude Code. Configur
 }
 ```
 
-The contract is simple — HookHerald runs your command and forwards whatever it prints:
+## Watchers
+
+Watchers poll external systems and push notifications into Claude Code. The contract is simple — HookHerald runs your command and forwards whatever it prints:
+
 - **stdout = send** — any non-empty stdout gets forwarded to Claude Code as a notification
 - **no stdout = skip** — nothing happens, no notification
 - **exit code doesn't matter** — only stdout counts, output is captured even on non-zero exit
 - **JSON stdout is parsed** — valid JSON stays structured, plain text stays as a string
 - **No diffing** — HookHerald doesn't compare outputs between runs. If your script prints something, it gets sent. The script decides when to fire and handles its own state/dedup.
+
+### Example: Watch CI Pipeline
+
+```bash
+#!/bin/bash
+# check-ci.sh — notify on GitHub Actions status changes
+STATE_FILE="/tmp/hh-ci-state"
+REPO="myorg/myrepo"
+
+RUN=$(gh run list --repo "$REPO" --limit 1 --json databaseId,status,conclusion,headBranch,event,createdAt,url 2>/dev/null | jq '.[0]')
+[ -z "$RUN" ] || [ "$RUN" = "null" ] && exit 0
+
+KEY=$(echo "$RUN" | jq -r '[.databaseId, .status, .conclusion] | join(":")')
+LAST=$(cat "$STATE_FILE" 2>/dev/null)
+[ "$KEY" = "$LAST" ] && exit 0
+
+echo "$KEY" > "$STATE_FILE"
+echo "$RUN"
+```
 
 ### Example: Watch Kubernetes Pods
 
@@ -122,6 +135,18 @@ esac
 Edit `.hookherald.json` while Claude Code is running — watchers are added/removed automatically. No restart needed. The dashboard updates within 30 seconds.
 
 See [examples/README.md](examples/README.md) for detailed walkthroughs, more scripts, writing your own watchers, and troubleshooting.
+
+## Webhooks
+
+The router also accepts webhooks from external systems. Any HTTP POST with a `project_slug` field gets forwarded to the matching channel:
+
+```bash
+curl -X POST http://127.0.0.1:9000/ \
+  -H "Content-Type: application/json" \
+  -d '{"project_slug":"my-group/my-project","status":"deployed","version":"1.2.3"}'
+```
+
+No auth by default — localhost is trusted. See [Auth](#auth) to enable it.
 
 ## CLI
 
