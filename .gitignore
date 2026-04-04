@@ -1,3 +1,5 @@
 node_modules/
+.mcp.json
+.hookherald.json
 .claude/skills/hookherald-workspace/
 .claude/skills/hookherald/evals/
