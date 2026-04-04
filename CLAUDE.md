@@ -157,6 +157,8 @@ On merge, the `Auto Release` workflow (`.github/workflows/auto-release.yml`) bum
 
 **CI** (`.github/workflows/ci.yml`) runs on every push and PR to `master` with 3 parallel jobs: unit/integration tests, e2e tests, and Docker build validation.
 
+**PRs and commits:** Do not add "Generated with Claude Code" or `Co-Authored-By` lines to commits or PR descriptions.
+
 ## Testing
 
 Tests are integration-heavy (92 tests across 4 suites). Router and channel tests spawn actual processes and make real HTTP requests. The router test creates fake downstream servers to verify forwarding. The channel test creates a fake router to capture registration, heartbeat, shutdown, and watcher behavior. CLI tests use mock servers for status/kill and temp directories for init. Observability tests are pure unit tests. Tests are isolated and safe to run with a live router on port 9000.
