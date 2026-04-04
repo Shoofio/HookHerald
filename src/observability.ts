@@ -17,7 +17,7 @@ export interface TraceSpan {
 export interface RouterEvent {
   id: string;
   timestamp: string;
-  type: "webhook" | "register" | "unregister" | "error";
+  type: "webhook" | "watcher" | "register" | "unregister" | "error";
   slug: string;
   routingDecision: "forwarded" | "no_route" | "unauthorized" | "invalid" | null;
   downstreamPort?: number;

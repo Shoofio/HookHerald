@@ -277,6 +277,8 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  const eventType = payload.source ? "watcher" : "webhook";
+
   // Route lookup
   const routeSpan = trace.span("route_lookup");
   const routeInfo = routes.get(slug);
@@ -288,7 +290,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordRequest(404);
     metrics.recordWebhook("no_route", slug, durationMs);
 
-    const ev = createRouterEvent("webhook", slug, {
+    const ev = createRouterEvent(eventType, slug, {
       id: traceId,
       routingDecision: "no_route",
       payload: truncatePayload(payload),
@@ -326,7 +328,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordWebhook("forwarded", slug, durationMs);
     log.info("forwarded", { slug, port: routeInfo.port, status: resp.status, durationMs, traceId });
 
-    const ev = createRouterEvent("webhook", slug, {
+    const ev = createRouterEvent(eventType, slug, {
       id: traceId,
       routingDecision: "forwarded",
       downstreamPort: routeInfo.port,
@@ -353,7 +355,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordWebhook("downstream_error", slug, durationMs);
     log.error("forward failed", { slug, port: routeInfo.port, error: err.message, traceId });
 
-    const ev = createRouterEvent("webhook", slug, {
+    const ev = createRouterEvent(eventType, slug, {
       id: traceId,
       routingDecision: "forwarded",
       downstreamPort: routeInfo.port,
