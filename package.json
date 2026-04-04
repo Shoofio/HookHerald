@@ -1,6 +1,6 @@
 {
   "name": "hookherald",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Watcher and webhook relay for Claude Code — push script output and HTTP events into running sessions",
   "type": "module",
   "license": "MIT",
