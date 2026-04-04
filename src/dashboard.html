@@ -159,6 +159,14 @@
     padding: 0 8px 8px;
   }
 
+  .event-source {
+    color: var(--purple);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .event-row {
     display: grid;
     grid-template-columns: 80px 1fr 80px 80px 50px;
@@ -183,6 +191,7 @@
     display: inline-block;
   }
   .badge.webhook { background: #1f3a5f; color: var(--blue); }
+  .badge.watcher { background: #3b2f60; color: var(--purple); }
   .badge.register { background: #1a3a2a; color: var(--green); }
   .badge.unregister { background: #3a1a1a; color: var(--red); }
   .badge.forwarded { background: #1a3a2a; color: var(--green); }
@@ -339,6 +348,7 @@
       <select id="filterType">
         <option value="">All types</option>
         <option value="webhook">webhook</option>
+        <option value="watcher">watcher</option>
         <option value="register">register</option>
         <option value="unregister">unregister</option>
       </select>
@@ -569,6 +579,9 @@ function renderEventDetail(ev) {
   html += `<span class="key">Time</span><span class="val">${ev.timestamp}</span>`;
   html += `<span class="key">Type</span><span class="val">${ev.type}</span>`;
   html += `<span class="key">Slug</span><span class="val">${esc(ev.slug)}</span>`;
+  if (ev.type === 'watcher' && ev.payload && ev.payload.source) {
+    html += `<span class="key">Source</span><span class="val" style="color:var(--purple)">${esc(ev.payload.source)}</span>`;
+  }
   html += `<span class="key">Decision</span><span class="val">${ev.routingDecision || 'n/a'}</span>`;
   html += `<span class="key">Response</span><span class="val">${ev.responseStatus}</span>`;
   html += `<span class="key">Duration</span><span class="val">${ev.durationMs}ms</span>`;

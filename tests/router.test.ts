@@ -610,6 +610,96 @@ describe("Router: watcher registration", () => {
   });
 });
 
+// --- Event type classification ---
+
+describe("Router: event type classification", () => {
+  it("sets type to 'watcher' when payload has a source field", async () => {
+    const { createServer } = await import("node:http");
+    const downstream = createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => downstream.listen(0, "127.0.0.1", resolve));
+    const dsPort = (downstream.address() as any).port;
+
+    try {
+      await post("/register", { project_slug: "test/watcher-type", port: dsPort });
+
+      await post(
+        "/",
+        {
+          project_slug: "test/watcher-type",
+          source: "kubectl get pods -o json",
+          output: { pods: [] },
+        },
+        { "X-Webhook-Token": SECRET },
+      );
+
+      const eventsRes = await fetch(`${BASE}/api/events`);
+      const events = await eventsRes.json();
+      const watcherEvent = events.find((e: any) => e.slug === "test/watcher-type" && e.type === "watcher");
+      assert.ok(watcherEvent, "should have an event with type 'watcher'");
+      assert.equal(watcherEvent.type, "watcher");
+    } finally {
+      downstream.close();
+      await post("/unregister", { project_slug: "test/watcher-type" });
+    }
+  });
+
+  it("sets type to 'webhook' when payload has no source field", async () => {
+    const { createServer } = await import("node:http");
+    const downstream = createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => downstream.listen(0, "127.0.0.1", resolve));
+    const dsPort = (downstream.address() as any).port;
+
+    try {
+      await post("/register", { project_slug: "test/webhook-type", port: dsPort });
+
+      await post(
+        "/",
+        {
+          project_slug: "test/webhook-type",
+          pipeline_status: "success",
+          branch: "main",
+        },
+        { "X-Webhook-Token": SECRET },
+      );
+
+      const eventsRes = await fetch(`${BASE}/api/events`);
+      const events = await eventsRes.json();
+      const webhookEvent = events.find((e: any) => e.slug === "test/webhook-type" && e.type === "webhook");
+      assert.ok(webhookEvent, "should have an event with type 'webhook'");
+      assert.equal(webhookEvent.type, "webhook");
+    } finally {
+      downstream.close();
+      await post("/unregister", { project_slug: "test/webhook-type" });
+    }
+  });
+
+  it("sets type to 'watcher' on no_route when payload has source field", async () => {
+    await post(
+      "/",
+      {
+        project_slug: "test/no-route-watcher",
+        source: "echo check",
+        output: "some output",
+      },
+      { "X-Webhook-Token": SECRET },
+    );
+
+    const eventsRes = await fetch(`${BASE}/api/events`);
+    const events = await eventsRes.json();
+    const ev = events.find((e: any) => e.slug === "test/no-route-watcher" && e.routingDecision === "no_route");
+    assert.ok(ev, "should have a no_route event");
+    assert.equal(ev.type, "watcher");
+  });
+});
+
 // --- Port conflict ---
 
 describe("Router: port conflict", () => {
