@@ -191,7 +191,7 @@
     display: inline-block;
   }
   .badge.webhook { background: #1f3a5f; color: var(--blue); }
-  .badge.watcher { background: #2a1f4f; color: var(--purple); }
+  .badge.watcher { background: #3b2f60; color: var(--purple); }
   .badge.register { background: #1a3a2a; color: var(--green); }
   .badge.unregister { background: #3a1a1a; color: var(--red); }
   .badge.forwarded { background: #1a3a2a; color: var(--green); }
@@ -557,7 +557,7 @@ function renderEvents() {
     html += `<div class="event-row" onclick="toggleEvent('${ev.id}')">
       <span class="event-time">${time}</span>
       <span class="event-slug" title="${esc(ev.slug)}">${esc(ev.slug)}</span>
-      <span><span class="badge ${ev.type}">${ev.type}</span>${ev.type === 'watcher' && ev.payload && ev.payload.source ? ` <span class="event-source" title="${esc(ev.payload.source)}">${esc(ev.payload.source.length > 30 ? ev.payload.source.slice(0, 27) + '...' : ev.payload.source)}</span>` : ''}</span>
+      <span class="badge ${ev.type}">${ev.type}</span>
       ${decision ? `<span class="badge ${decision}">${decision.replace('_', ' ')}</span>` : '<span></span>'}
       <span class="event-latency">${ev.durationMs !== undefined ? ev.durationMs + 'ms' : ''}</span>
     </div>`;
