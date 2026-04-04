@@ -56,8 +56,17 @@ const httpServer = createServer(async (req, res) => {
 
   const traceId = req.headers["x-trace-id"] as string | undefined;
 
+  const MAX_BODY = 1024 * 1024; // 1MB
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY) {
+      res.writeHead(413).end("Payload too large");
+      return;
+    }
+    chunks.push(chunk as Buffer);
+  }
   const rawBody = Buffer.concat(chunks).toString();
 
   let payload: any;
@@ -258,11 +267,17 @@ httpServer.listen(0, "127.0.0.1", async () => {
   assignedPort = typeof addr === "object" && addr ? addr.port : 0;
   log.info("HTTP server listening", { host: "127.0.0.1", port: assignedPort });
 
-  loadAndStartWatchers();
-  startConfigWatcher();
+  // Load watcher configs (but don't start them yet)
+  const config = readConfig();
+  currentWatcherConfigs = config?.watchers || [];
+
+  // Register first so watchers can POST immediately
   await register();
-  // Run watchers that were deferred during startup (before registration)
-  for (const w of currentWatcherConfigs) runWatcher(w);
+
+  // Now start watchers — they'll run immediately since we're registered
+  startWatchers(currentWatcherConfigs);
+
+  startConfigWatcher();
   startHeartbeat();
 });
 

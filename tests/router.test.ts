@@ -103,6 +103,20 @@ describe("Router: registration", () => {
     const res = await post("/unregister", {});
     assert.equal(res.status, 400);
   });
+
+  it("rejects registration with invalid slug format", async () => {
+    const res = await post("/register", { project_slug: "has spaces/bad!", port: 55000 });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.ok(data.error.includes("invalid project_slug"));
+  });
+
+  it("rejects registration with overly long slug", async () => {
+    const res = await post("/register", { project_slug: "a".repeat(201), port: 55000 });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.ok(data.error.includes("invalid project_slug"));
+  });
 });
 
 // --- Webhook auth ---
@@ -149,6 +163,17 @@ describe("Router: webhook routing", () => {
     assert.equal(res.status, 400);
     const data = await res.json();
     assert.ok(data.error.includes("project_slug"));
+  });
+
+  it("returns 400 for invalid project_slug format", async () => {
+    const res = await post(
+      "/",
+      { project_slug: "<script>alert(1)</script>" },
+      { "X-Webhook-Token": SECRET },
+    );
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.ok(data.error.includes("invalid project_slug"));
   });
 
   it("returns 404 for unregistered project", async () => {

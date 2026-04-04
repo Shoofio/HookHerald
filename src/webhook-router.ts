@@ -10,6 +10,7 @@ import {
   createTrace,
   truncatePayload,
   newEventId,
+  createRouterEvent,
   type RouteInfo,
   type RouterEvent,
 } from "./observability.js";
@@ -64,6 +65,15 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString();
 }
 
+// --- Slug validation ---
+
+const SLUG_PATTERN = /^[\w\-\.\/]+$/;
+const MAX_SLUG_LENGTH = 200;
+
+function isValidSlug(slug: string): boolean {
+  return slug.length <= MAX_SLUG_LENGTH && SLUG_PATTERN.test(slug);
+}
+
 // --- Route helpers ---
 
 function getRoutesSnapshot() {
@@ -85,6 +95,11 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
   if (!project_slug || !port) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "missing project_slug or port" }));
+    return;
+  }
+  if (!isValidSlug(project_slug)) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid project_slug format" }));
     return;
   }
 
@@ -116,16 +131,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse) {
   metrics.registrations++;
   log.info("registered", { slug: project_slug, port });
 
-  const event: RouterEvent = {
-    id: newEventId(),
-    timestamp: new Date().toISOString(),
-    type: "register",
-    slug: project_slug,
-    routingDecision: null,
-    downstreamPort: port,
-    durationMs: 0,
-    responseStatus: 200,
-  };
+  const event = createRouterEvent("register", project_slug, { downstreamPort: port });
   events.push(event);
   broadcast("session", { sessions: getSessionsData() });
   broadcast("webhook", event);
@@ -154,15 +160,7 @@ async function handleUnregister(req: IncomingMessage, res: ServerResponse) {
   metrics.unregistrations++;
   log.info("unregistered", { slug: project_slug });
 
-  const event: RouterEvent = {
-    id: newEventId(),
-    timestamp: new Date().toISOString(),
-    type: "unregister",
-    slug: project_slug,
-    routingDecision: null,
-    durationMs: 0,
-    responseStatus: 200,
-  };
+  const event = createRouterEvent("unregister", project_slug);
   events.push(event);
   broadcast("session", { sessions: getSessionsData() });
   broadcast("webhook", event);
@@ -190,17 +188,14 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
       metrics.recordRequest(401);
       metrics.recordWebhook("unauthorized");
 
-      const ev: RouterEvent = {
+      const ev = createRouterEvent("webhook", "unknown", {
         id: traceId,
-        timestamp: new Date().toISOString(),
-        type: "webhook",
-        slug: "unknown",
         routingDecision: "unauthorized",
         durationMs: trace.elapsed(),
         responseStatus: 401,
         traceSpans: trace.spans,
         error: "invalid token",
-      };
+      });
       events.push(ev);
       broadcast("webhook", ev);
 
@@ -222,17 +217,14 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordRequest(400);
     metrics.recordWebhook("invalid");
 
-    const ev: RouterEvent = {
+    const ev = createRouterEvent("webhook", "unknown", {
       id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug: "unknown",
       routingDecision: "invalid",
       durationMs: trace.elapsed(),
       responseStatus: 400,
       traceSpans: trace.spans,
       error: "invalid JSON",
-    };
+    });
     events.push(ev);
     broadcast("webhook", ev);
 
@@ -247,23 +239,41 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordRequest(400);
     metrics.recordWebhook("invalid");
 
-    const ev: RouterEvent = {
+    const ev = createRouterEvent("webhook", "unknown", {
       id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug: "unknown",
       routingDecision: "invalid",
       payload: truncatePayload(payload),
       durationMs: trace.elapsed(),
       responseStatus: 400,
       traceSpans: trace.spans,
       error: "missing project_slug",
-    };
+    });
     events.push(ev);
     broadcast("webhook", ev);
 
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "missing project_slug in payload" }));
+    return;
+  }
+
+  if (!isValidSlug(slug)) {
+    metrics.recordRequest(400);
+    metrics.recordWebhook("invalid");
+
+    const ev = createRouterEvent("webhook", "unknown", {
+      id: traceId,
+      routingDecision: "invalid",
+      payload: truncatePayload(payload),
+      durationMs: trace.elapsed(),
+      responseStatus: 400,
+      traceSpans: trace.spans,
+      error: "invalid project_slug format",
+    });
+    events.push(ev);
+    broadcast("webhook", ev);
+
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid project_slug format" }));
     return;
   }
 
@@ -278,17 +288,14 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordRequest(404);
     metrics.recordWebhook("no_route", slug, durationMs);
 
-    const ev: RouterEvent = {
+    const ev = createRouterEvent("webhook", slug, {
       id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug,
       routingDecision: "no_route",
       payload: truncatePayload(payload),
       durationMs,
       responseStatus: 404,
       traceSpans: trace.spans,
-    };
+    });
     events.push(ev);
     broadcast("webhook", ev);
 
@@ -319,11 +326,8 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordWebhook("forwarded", slug, durationMs);
     log.info("forwarded", { slug, port: routeInfo.port, status: resp.status, durationMs, traceId });
 
-    const ev: RouterEvent = {
+    const ev = createRouterEvent("webhook", slug, {
       id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug,
       routingDecision: "forwarded",
       downstreamPort: routeInfo.port,
       downstreamStatus: resp.status,
@@ -332,7 +336,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
       forwardDurationMs: fwdSpan.durationMs,
       responseStatus: 200,
       traceSpans: trace.spans,
-    };
+    });
     events.push(ev);
     broadcast("webhook", ev);
     broadcast("session", { sessions: getSessionsData() });
@@ -349,11 +353,8 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
     metrics.recordWebhook("downstream_error", slug, durationMs);
     log.error("forward failed", { slug, port: routeInfo.port, error: err.message, traceId });
 
-    const ev: RouterEvent = {
+    const ev = createRouterEvent("webhook", slug, {
       id: traceId,
-      timestamp: new Date().toISOString(),
-      type: "webhook",
-      slug,
       routingDecision: "forwarded",
       downstreamPort: routeInfo.port,
       payload: truncatePayload(payload),
@@ -362,7 +363,7 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse) {
       responseStatus: 502,
       traceSpans: trace.spans,
       error: err.message,
-    };
+    });
     events.push(ev);
     broadcast("webhook", ev);
     broadcast("session", { sessions: getSessionsData() });
@@ -455,15 +456,7 @@ const staleInterval = setInterval(() => {
       routes.delete(slug);
       metrics.unregistrations++;
       log.warn("reaped stale route", { slug, lastHeartbeatAgoMs: now - info.lastHeartbeatAt });
-      events.push({
-        id: newEventId(),
-        timestamp: new Date().toISOString(),
-        type: "unregister",
-        slug,
-        routingDecision: null,
-        durationMs: 0,
-        responseStatus: 200,
-      });
+      events.push(createRouterEvent("unregister", slug));
       changed = true;
     }
   }
@@ -517,15 +510,7 @@ async function handleApiKill(req: IncomingMessage, res: ServerResponse) {
   routes.delete(project_slug);
   log.info("killed", { slug: project_slug, port: routeInfo.port });
 
-  events.push({
-    id: newEventId(),
-    timestamp: new Date().toISOString(),
-    type: "unregister",
-    slug: project_slug,
-    routingDecision: null,
-    durationMs: 0,
-    responseStatus: 200,
-  });
+  events.push(createRouterEvent("unregister", project_slug));
   broadcast("session", { sessions: getSessionsData() });
 
   res.writeHead(200, { "Content-Type": "application/json" });
