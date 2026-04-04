@@ -129,9 +129,37 @@ Auth is **opt-in**. By default, no secret is required on any endpoint.
 
 For external webhook sources (GitLab, GitHub), start the router with `--secret` and configure the same secret in the webhook settings.
 
+## Development Workflow
+
+**Branch & PR:** Create a feature branch off `master`, push, and open a PR. CI runs automatically on PRs (test, e2e, docker jobs). Merge to `master` when CI is green.
+
+**Release:** Add a label to your PR before merging to trigger an automatic release:
+
+- `release:patch` — bump 0.6.0 → 0.6.1
+- `release:minor` — bump 0.6.0 → 0.7.0
+- `release:major` — bump 0.6.0 → 1.0.0
+- No label — no release (merge without shipping)
+
+```bash
+# Add label when creating a PR
+gh pr create --title "Fix thing" --label "release:patch"
+
+# Or add to an existing PR
+gh pr edit 5 --add-label "release:minor"
+```
+
+On merge, the `Auto Release` workflow (`.github/workflows/auto-release.yml`) bumps `package.json`, commits, and pushes a `vX.Y.Z` tag. The `Release` workflow (`.github/workflows/release.yml`) then triggers on that tag and:
+- Runs the full test suite
+- Verifies the tag matches `package.json` version
+- Publishes to npm with provenance
+- Builds and pushes Docker image to DockerHub (`shoofio/hookherald:X.Y.Z` + `latest`)
+- Creates a GitHub release with auto-generated notes
+
+**CI** (`.github/workflows/ci.yml`) runs on every push and PR to `master` with 3 parallel jobs: unit/integration tests, e2e tests, and Docker build validation.
+
 ## Testing
 
-Tests are integration-heavy (89 tests across 4 suites). Router and channel tests spawn actual processes and make real HTTP requests. The router test creates fake downstream servers to verify forwarding. The channel test creates a fake router to capture registration, heartbeat, shutdown, and watcher behavior. CLI tests use mock servers for status/kill and temp directories for init. Observability tests are pure unit tests. Tests are isolated and safe to run with a live router on port 9000.
+Tests are integration-heavy (92 tests across 4 suites). Router and channel tests spawn actual processes and make real HTTP requests. The router test creates fake downstream servers to verify forwarding. The channel test creates a fake router to capture registration, heartbeat, shutdown, and watcher behavior. CLI tests use mock servers for status/kill and temp directories for init. Observability tests are pure unit tests. Tests are isolated and safe to run with a live router on port 9000.
 
 ## Environment Variables
 
