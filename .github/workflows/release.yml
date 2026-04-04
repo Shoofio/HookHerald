@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: ["Auto Release"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,8 +15,34 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Skip if workflow_run triggered but Auto Release failed
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve version tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            # workflow_run or workflow_dispatch: find the latest v* tag
+            git fetch --tags
+            TAG=$(git tag -l "v*" --sort=-v:refname | head -1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::No version tag found"
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "Releasing $TAG"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: actions/setup-node@v4
         with:
@@ -27,13 +56,11 @@ jobs:
 
       - name: Verify version matches tag
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG_VERSION"
             exit 1
           fi
-          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
       - name: Publish to npm
         run: npm publish --provenance --access public
@@ -58,4 +85,5 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           generate_release_notes: true
